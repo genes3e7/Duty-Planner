@@ -1,4 +1,4 @@
-# Duty Scheduler Pro v6.4
+# Duty Scheduler Pro v7.1
 
 A professional automated rostering tool designed for 24/7 operations. It uses constraint programming (Google OR-Tools) to generate fair, rule-compliant schedules while optimizing for equal point distribution.
 
@@ -9,10 +9,9 @@ A professional automated rostering tool designed for 24/7 operations. It uses co
     * **Strict Gap Rule:** Enforces mandatory rest days. No back-to-back duties of any kind (e.g., cannot do PM on Monday and AM on Tuesday).
     * **Manpower Constraints:** Enforces daily requirements for AM, PM, 24H, and Standby shifts.
     * **Fairness Optimization:** Minimizes the variance in "duty points" across all staff.
-* **Flexible Modes:**
-    * **24H Mode:** All shifts are 24-hour duties.
-    * **Shift Mode:** AM/PM splits.
-    * **Hybrid:** Auto-switches based on Weekends/Public Holidays.
+* **Flexible Scheduling:**
+    * **Duty Toggle (New):** Disable specific days entirely (e.g., holidays or office closures) by unchecking the "Duty?" row.
+    * **24H Mode:** Toggle individual days between 3-shift mode (AM/PM) and 24-hour duty mode.
 * **Smart Configuration:**
     * **Dynamic Import:** Automatically detects and adds new staff names when importing balance files.
     * **GUI Settings:** Adjust staff lists, daily requirements, and point values directly in the app.
@@ -41,14 +40,13 @@ Navigate to the **Settings** tab:
 
 ### 2. Planning a Roster
 Switch to the **Planner** tab:
-1.  Select the **Month** and **Year**.
-2.  Click **Load Grid**.
-3.  **Import Balances (Optional):** Load an Excel file from the previous month to carry over scores. New names found in the file will be auto-added.
+1.  Select the **Month** and **Year** and click **Load Grid**.
+2.  **Disable Days (Optional):** If no duty is required on a specific date (e.g., a weekend), uncheck the box in the **"Duty?"** row. The column will turn grey and be excluded from planning.
+3.  **24H Toggle:** Use the checkboxes in the **"24H?"** row to force specific days into 24-hour duty mode.
 4.  **Manual Constraints:** Click cells to cycle through pre-assigned statuses:
     * `X` = Leave (Solver will NOT assign duty).
     * `AM`/`PM`/`24H` = Forced Duty (Solver will keep this).
-5.  **24H Toggle:** Use the checkboxes in the header row (or **Check All 24H**) to force specific days into 24H mode.
-6.  **Generate:** Click **GENERATE FILL**. The AI will fill empty slots while respecting your manual inputs and rules.
+5.  **Generate:** Click **GENERATE FILL**. The AI will fill empty slots while respecting your manual inputs and rules.
 
 ### 3. Export
 * Click **Export to Excel** to save a formatted `.xlsx` file containing the roster and points summary.

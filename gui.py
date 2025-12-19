@@ -1,13 +1,9 @@
 """
-gui.py
-
-Main Application Entry Point.
+gui.py v7.0
 Features:
-- Responsive Grid with horizontal scrolling.
-- Settings Tab for easy configuration.
-- Threaded solver execution.
-- Smart state management.
-- Dynamic Personnel Import from Excel.
+- New "Duty?" Toggle Row to disable specific days.
+- Dynamic column disabling/clearing.
+- Robust state management for inactive days.
 """
 
 import calendar
@@ -50,8 +46,11 @@ class ShiftGridCell(ctk.CTkButton):
         self.day = day
         self.app = parent_app
         self.current_val = "" 
+        self._is_disabled = False
 
     def _on_click(self) -> None:
+        if self._is_disabled: return # Defensive check
+        
         mode = self.app.get_day_mode(self.day)
         if mode == "24H":
             cycle = ["", "X", "24H"]
@@ -65,6 +64,8 @@ class ShiftGridCell(ctk.CTkButton):
         self.set_val(next_val)
 
     def set_val(self, val: str) -> None:
+        if self._is_disabled and val != "": return # Prevent setting values if disabled
+        
         self.current_val = val
         bg = C.COLOR_CELL_DEFAULT
         txt = C.COLOR_TEXT_BLACK
@@ -75,9 +76,17 @@ class ShiftGridCell(ctk.CTkButton):
         elif val == "24H": bg, txt = C.COLOR_CELL_24H, C.COLOR_TEXT_WHITE
         elif val == "S/B": bg, txt = C.COLOR_CELL_PH, C.COLOR_TEXT_BLACK
         
-        self.configure(text=val, fg_color=bg, text_color=txt)
+        self.configure(text=val, fg_color=bg, text_color=txt, state="normal")
         self.configure(hover_color="#E0E0E0" if val == "" else bg)
         self.app.recalculate_points()
+
+    def set_disabled(self, disabled: bool):
+        self._is_disabled = disabled
+        if disabled:
+            self.set_val("") # Clear value defensively
+            self.configure(state="disabled", fg_color="#E0E0E0", text="") # Grey out
+        else:
+            self.configure(state="normal", fg_color=C.COLOR_CELL_DEFAULT)
 
 class App(ctk.CTk):
     def __init__(self) -> None:
@@ -93,6 +102,7 @@ class App(ctk.CTk):
         
         self.cells: Dict[Tuple[str, int], ShiftGridCell] = {}
         self.day_mode_vars: Dict[int, ctk.StringVar] = {} 
+        self.day_active_vars: Dict[int, ctk.BooleanVar] = {} # New: Track active days
         self.stat_labels: Dict[str, Dict[str, ctk.CTkLabel]] = {}
 
         self.grid_columnconfigure(0, weight=1)
@@ -114,8 +124,10 @@ class App(ctk.CTk):
         
         self.grid_container = ctk.CTkFrame(self.tab_plan, fg_color="transparent")
         self.grid_container.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        
         self.scroll_frame = ctk.CTkScrollableFrame(self.grid_container, orientation="horizontal")
         self.scroll_frame.pack(fill="both", expand=True)
+        
         self._setup_bottom_bar(self.tab_plan)
 
     def _init_settings_tab(self) -> None:
@@ -125,7 +137,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(frame, text="Configuration", font=("Arial", 20, "bold")).pack(pady=10)
         
         # Requirements
-        ctk.CTkLabel(frame, text="Daily Requirements", font=("Arial", 14, "bold")).pack(anchor="w", pady=(10, 5))
+        ctk.CTkLabel(frame, text="Daily Manpower Requirements", font=("Arial", 14, "bold")).pack(anchor="w", pady=(10, 5))
         self.entries_reqs: Dict[str, ctk.CTkEntry] = {}
         
         f1 = ctk.CTkFrame(frame)
@@ -187,8 +199,6 @@ class App(ctk.CTk):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
         
-        # Removed Unit Label and Entry
-
         self.cmb_month = ctk.CTkComboBox(frame, values=list(calendar.month_name)[1:], width=110)
         curr_m = self.config.get('month', datetime.datetime.now().month)
         try: self.cmb_month.set(list(calendar.month_name)[curr_m]) 
@@ -203,7 +213,6 @@ class App(ctk.CTk):
         self.btn_toggle_24 = ctk.CTkButton(frame, text="Check All 24H", width=100, fg_color="#7B1FA2", hover_color="#4A148C", command=self.toggle_all_24h)
         self.btn_toggle_24.pack(side="left", padx=10)
 
-        # Right Side
         ctk.CTkButton(frame, text="Import Balances", width=110, command=self.import_balances).pack(side="right", padx=5)
         ctk.CTkButton(frame, text="Clear Duties", fg_color="#EF5350", hover_color="#C62828", width=90, command=self.clear_duties).pack(side="right", padx=5)
         ctk.CTkButton(frame, text="Reset All", fg_color="#D32F2F", hover_color="#B71C1C", width=80, command=self.reset_all).pack(side="right", padx=5)
@@ -263,6 +272,17 @@ class App(ctk.CTk):
         self.all_24h_active = not self.all_24h_active
         self.btn_toggle_24.configure(text="Uncheck All" if self.all_24h_active else "Check All 24H")
 
+    def toggle_day_active(self, day: int):
+        """Callback for 'Duty?' toggle. Disables/Enables columns."""
+        is_active = self.day_active_vars[day].get()
+        
+        # Iterate through all personnel for this day
+        for p in self.config.get('personnel', []):
+            if (p, day) in self.cells:
+                self.cells[(p, day)].set_disabled(not is_active)
+        
+        self.recalculate_points()
+
     def clear_duties(self):
         if not messagebox.askyesno("Confirm", "Clear duties?"): return
         for cell in self.cells.values():
@@ -298,15 +318,22 @@ class App(ctk.CTk):
         for widget in self.scroll_frame.winfo_children(): widget.destroy()
         self.cells.clear()
         self.day_mode_vars.clear()
+        self.day_active_vars.clear()
         self.stat_labels.clear()
         self.all_24h_active = False
         self.btn_toggle_24.configure(text="Check All 24H")
 
         try:
+            # Row 0: Date
             ctk.CTkLabel(self.scroll_frame, text="Date", font=("Arial", 10, "bold")).grid(row=0, column=0, padx=5, sticky="w")
+            # Row 1: Day
             ctk.CTkLabel(self.scroll_frame, text="Day", font=("Arial", 10, "bold")).grid(row=1, column=0, padx=5, sticky="w")
-            ctk.CTkLabel(self.scroll_frame, text="24H?", font=("Arial", 10, "bold")).grid(row=2, column=0, padx=5, sticky="w")
-            ctk.CTkLabel(self.scroll_frame, text="NAME", font=("Arial", 12, "bold")).grid(row=3, column=0, padx=5, sticky="w")
+            # Row 2: Duty Active? (New)
+            ctk.CTkLabel(self.scroll_frame, text="Duty?", font=("Arial", 10, "bold")).grid(row=2, column=0, padx=5, sticky="w")
+            # Row 3: 24H Toggle
+            ctk.CTkLabel(self.scroll_frame, text="24H?", font=("Arial", 10, "bold")).grid(row=3, column=0, padx=5, sticky="w")
+            # Row 4: Name Header
+            ctk.CTkLabel(self.scroll_frame, text="NAME", font=("Arial", 12, "bold")).grid(row=4, column=0, padx=5, sticky="w")
 
             for d in range(1, self.current_days + 1):
                 dt = pd.Timestamp(year=year, month=month_idx, day=d)
@@ -314,21 +341,31 @@ class App(ctk.CTk):
                 is_wknd = dt.dayofweek >= 5
                 bg = C.COLOR_PH_BG if is_ph else (C.COLOR_HEADER_BG if is_wknd else "transparent")
                 
+                # Headers
                 ctk.CTkLabel(self.scroll_frame, text=str(d), width=40, fg_color=bg).grid(row=0, column=d, padx=1, sticky="nsew")
                 ctk.CTkLabel(self.scroll_frame, text=dt.strftime("%a"), width=40, fg_color=bg).grid(row=1, column=d, padx=1, sticky="nsew")
                 
+                # Active Checkbox (Row 2)
+                active_var = ctk.BooleanVar(value=True)
+                self.day_active_vars[d] = active_var
+                ctk.CTkCheckBox(self.scroll_frame, text="", variable=active_var, width=20, 
+                                command=lambda day=d: self.toggle_day_active(day)).grid(row=2, column=d)
+
+                # 24H Checkbox (Row 3)
                 val = "24H" if (is_wknd or is_ph) else "Shift"
                 var = ctk.StringVar(value=val)
                 self.day_mode_vars[d] = var
-                ctk.CTkCheckBox(self.scroll_frame, text="", variable=var, onvalue="24H", offvalue="Shift", width=20).grid(row=2, column=d)
+                ctk.CTkCheckBox(self.scroll_frame, text="", variable=var, onvalue="24H", offvalue="Shift", width=20).grid(row=3, column=d)
 
+            # Stats Headers (Row 4, shifted right)
             start_col = self.current_days + 1
-            ctk.CTkLabel(self.scroll_frame, text="Brought Fwd", font=("Arial", 10, "bold")).grid(row=3, column=start_col+1, padx=5)
-            ctk.CTkLabel(self.scroll_frame, text="Month Pts", font=("Arial", 10, "bold")).grid(row=3, column=start_col+2, padx=5)
-            ctk.CTkLabel(self.scroll_frame, text="Carry Over", font=("Arial", 10, "bold")).grid(row=3, column=start_col+3, padx=5)
+            ctk.CTkLabel(self.scroll_frame, text="Brought Fwd", font=("Arial", 10, "bold")).grid(row=4, column=start_col+1, padx=5)
+            ctk.CTkLabel(self.scroll_frame, text="Month Pts", font=("Arial", 10, "bold")).grid(row=4, column=start_col+2, padx=5)
+            ctk.CTkLabel(self.scroll_frame, text="Carry Over", font=("Arial", 10, "bold")).grid(row=4, column=start_col+3, padx=5)
 
+            # Personnel Rows
             for idx, person in enumerate(personnel):
-                r = idx + 4
+                r = idx + 5 # Start from row 5
                 ctk.CTkLabel(self.scroll_frame, text=person).grid(row=r, column=0, sticky="w", padx=5)
                 for d in range(1, self.current_days + 1):
                     cell = ShiftGridCell(self.scroll_frame, person, d, self)
@@ -362,6 +399,10 @@ class App(ctk.CTk):
                 bf = self.prev_balance.get(p, 0.0)
                 cur = 0.0
                 for d in range(1, self.current_days + 1):
+                    # Defensive: check if day is active
+                    if not self.day_active_vars.get(d, ctk.BooleanVar(value=True)).get():
+                        continue
+
                     if (p, d) in self.cells:
                         val = self.cells[(p, d)].current_val
                         if val in C.SHIFT_TYPES:
@@ -380,6 +421,10 @@ class App(ctk.CTk):
         errors = []
         for p in self.config.get('personnel', []):
             for d in range(1, self.current_days):
+                # Ignore if either day is disabled
+                if not self.day_active_vars[d].get() or not self.day_active_vars[d+1].get():
+                    continue
+
                 if (p, d) in self.cells and (p, d+1) in self.cells:
                     c1 = self.cells[(p, d)].current_val
                     c2 = self.cells[(p, d+1)].current_val
@@ -392,14 +437,18 @@ class App(ctk.CTk):
         self.lbl_status.configure(text="Solving...", text_color="blue")
         fixed = {k: v.current_val for k, v in self.cells.items() if v.current_val}
         modes = {d: v.get() for d, v in self.day_mode_vars.items()}
-        # Removed setting workplace_name
+        
+        # Gather inactive days
+        inactive = [d for d, var in self.day_active_vars.items() if not var.get()]
+        
         self.config['year'] = int(self.ent_year.get())
         self.config['month'] = list(calendar.month_name).index(self.cmb_month.get())
-        threading.Thread(target=self._worker, args=(fixed, modes), daemon=True).start()
+        threading.Thread(target=self._worker, args=(fixed, modes, inactive), daemon=True).start()
 
-    def _worker(self, fixed, modes):
+    def _worker(self, fixed, modes, inactive):
         try:
-            engine = DutySchedulerEngine(self.config, self.prev_balance, [], modes, fixed)
+            # Pass inactive days to engine
+            engine = DutySchedulerEngine(self.config, self.prev_balance, [], modes, fixed, inactive_days=inactive)
             engine.build_model()
             res = engine.solve()
             self.after(0, self._on_success, res)
@@ -445,7 +494,6 @@ class App(ctk.CTk):
             try:
                 self.prev_balance = DataManager.load_previous_balance(fp)
                 
-                # Check for new names
                 imported_names = list(self.prev_balance.keys())
                 current_names = set(self.config.get('personnel', []))
                 new_names = [n for n in imported_names if n not in current_names]
@@ -454,9 +502,9 @@ class App(ctk.CTk):
                     msg = f"Found {len(new_names)} new names in file:\n{', '.join(new_names[:5])}...\n\nAdd them to configuration?"
                     if messagebox.askyesno("Update Personnel", msg):
                         self.config['personnel'].extend(new_names)
-                        self.config['personnel'].sort() # Keep tidy
+                        self.config['personnel'].sort() 
                         DataManager.save_config(self.config)
-                        self.refresh_grid() # Reload grid to show new rows
+                        self.refresh_grid()
                         
                 self.recalculate_points() 
                 messagebox.showinfo("Success", f"Loaded balances for {len(self.prev_balance)} people")

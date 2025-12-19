@@ -1,8 +1,8 @@
 """
-scheduler_engine.py
-
-Core Logic: Constraint Satisfaction Problem (CSP) Solver using Google OR-Tools.
-Enforces strict rules: Manpower, Exclusivity, and Resting gaps.
+scheduler_engine.py v7.0
+Updates:
+- Added inactive_days handling.
+- Skips constraints for inactive days.
 """
 
 import logging
@@ -19,7 +19,8 @@ class DutySchedulerEngine:
         prev_balance: Dict[str, float],
         leaves: List[Tuple[str, int]],   
         day_modes: Dict[int, str],       
-        fixed_assignments: Dict[Tuple[str, int], str]
+        fixed_assignments: Dict[Tuple[str, int], str],
+        inactive_days: List[int] = None # New Argument
     ) -> None:
         self.cfg = config
         self.personnel = config.get('personnel', [])
@@ -27,8 +28,8 @@ class DutySchedulerEngine:
         self.leaves = leaves
         self.day_modes = day_modes
         self.fixed_assignments = fixed_assignments 
+        self.inactive_days = inactive_days if inactive_days else []
         
-        # Date Logic
         self.year = int(config.get('year', 2025))
         self.month = int(config.get('month', 1))
         
@@ -38,13 +39,11 @@ class DutySchedulerEngine:
             self.num_days = 30 
             
         self.sg_holidays = holidays.SG(years=self.year)
-        
         self.model = cp_model.CpModel()
         self.shifts: Dict[Tuple[str, int, str], cp_model.IntVar] = {}
         self.shift_types = C.SHIFT_TYPES
 
     def _is_ph_or_weekend(self, day: int) -> Tuple[bool, bool]:
-        """Determines if a day is a Public Holiday or Weekend."""
         try:
             date = pd.Timestamp(year=self.year, month=self.month, day=day)
             is_ph = date in self.sg_holidays
@@ -54,7 +53,6 @@ class DutySchedulerEngine:
             return False, False
 
     def build_model(self) -> None:
-        """Constructs the constraint model."""
         logging.info("Building CSP Model...")
 
         # 1. Variables
@@ -65,16 +63,25 @@ class DutySchedulerEngine:
 
         # 2. Fixed Assignments
         for (p, d), shift_type in self.fixed_assignments.items():
+            if d in self.inactive_days: continue # Skip fixed assignments on disabled days
+            
             if shift_type == "X":
                 self.model.Add(sum(self.shifts[(p, d, s)] for s in self.shift_types) == 0)
             elif shift_type in self.shift_types:
                 self.model.Add(self.shifts[(p, d, shift_type)] == 1)
 
-        # 3. Manpower Constraints
+        # 3. Manpower Constraints (Skipped for Inactive Days)
         reqs = self.cfg.get('constraints', {}).get('personnel_needed_per_shift', {})
         sb_req = int(self.cfg.get('constraints', {}).get('standby_per_day', 1))
         
         for d in range(1, self.num_days + 1):
+            # If day is inactive, enforce 0 shifts for everyone
+            if d in self.inactive_days:
+                for p in self.personnel:
+                    self.model.Add(sum(self.shifts[(p, d, s)] for s in self.shift_types) == 0)
+                continue
+
+            # Otherwise, enforce requirements
             mode = self.day_modes.get(d, "Shift") 
             t_am = t_pm = t_24 = 0
             
@@ -89,20 +96,17 @@ class DutySchedulerEngine:
             self.model.Add(sum(self.shifts[(p, d, '24H')] for p in self.personnel) == t_24)
             self.model.Add(sum(self.shifts[(p, d, 'S/B')] for p in self.personnel) == sb_req)
 
-        # 4. Strict Gap Rule (No Consecutive Duty)
+        # 4. Strict Gap Rule
         for p in self.personnel:
-            # Max 1 shift per day
             for d in range(1, self.num_days + 1):
                 self.model.Add(sum(self.shifts[(p, d, s)] for s in self.shift_types) <= 1)
 
-            # No back-to-back days
             for d in range(1, self.num_days):
                 working_today = sum(self.shifts[(p, d, s)] for s in self.shift_types)
                 working_tmrw = sum(self.shifts[(p, d+1, s)] for s in self.shift_types)
                 self.model.Add(working_today + working_tmrw <= 1)
 
     def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], List[Dict[str, Any]]]]:
-        """Executes the solver."""
         logging.info("Solving...")
         person_scores = []
         SCALE = C.SCORE_SCALE_FACTOR 
@@ -112,6 +116,8 @@ class DutySchedulerEngine:
             start_bal = int(self.prev_balance.get(p, 0.0) * SCALE)
             
             for d in range(1, self.num_days + 1):
+                if d in self.inactive_days: continue # No points for inactive days
+
                 is_ph, is_wknd = self._is_ph_or_weekend(d)
                 mult = 1.0
                 if is_ph: mult = float(self.cfg['points'].get('ph_multiplier', 1.0))
@@ -127,7 +133,6 @@ class DutySchedulerEngine:
             self.model.Add(total == sum(score_expr) + start_bal)
             person_scores.append(total)
 
-        # Objective: Balance scores and equal distribution of Standby
         min_s = self.model.NewIntVar(-1000000, 1000000, 'min_s')
         max_s = self.model.NewIntVar(-1000000, 1000000, 'max_s')
         self.model.AddMinEquality(min_s, person_scores)
@@ -143,7 +148,6 @@ class DutySchedulerEngine:
         self.model.AddMinEquality(min_sb, sb_counts)
         self.model.AddMaxEquality(max_sb, sb_counts)
 
-        # Weighted Objective
         self.model.Minimize(
             (max_s - min_s) * C.WEIGHT_POINTS_BALANCE + 
             (max_sb - min_sb) * C.WEIGHT_STANDBY_BALANCE
@@ -156,13 +160,13 @@ class DutySchedulerEngine:
         if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
             return self._format_results(solver, person_scores, SCALE)
         else:
-            logging.warning("No solution found.")
             return None
 
     def _format_results(self, solver, person_scores, scale):
         schedule = {}
         for p in self.personnel:
             for d in range(1, self.num_days + 1):
+                if d in self.inactive_days: continue
                 for s in self.shift_types:
                     if solver.Value(self.shifts[(p, d, s)]):
                         schedule[(p, d)] = s
