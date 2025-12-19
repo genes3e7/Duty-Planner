@@ -1,4 +1,4 @@
-# Duty Scheduler Pro v7.1
+# Duty Scheduler Pro v3.0.0
 
 A professional automated rostering tool designed for 24/7 operations. It uses constraint programming (Google OR-Tools) to generate fair, rule-compliant schedules while optimizing for equal point distribution.
 
@@ -6,14 +6,15 @@ A professional automated rostering tool designed for 24/7 operations. It uses co
 
 * **Interactive Grid:** Excel-like interface to view and edit rosters in real-time.
 * **Smart Solver:**
-    * **Strict Gap Rule:** Enforces mandatory rest days. No back-to-back duties of any kind (e.g., cannot do PM on Monday and AM on Tuesday).
+    * **Strict Gap Rule:** Enforces mandatory rest days. No back-to-back duties.
     * **Manpower Constraints:** Enforces daily requirements for AM, PM, 24H, and Standby shifts.
-    * **Fairness Optimization:** Minimizes the variance in "duty points" across all staff.
+    * **Fairness Optimization:** Mathematically minimizes the variance in "duty points" across all staff.
 * **Flexible Scheduling:**
-    * **Duty Toggle (New):** Disable specific days entirely (e.g., holidays or office closures) by unchecking the "Duty?" row.
+    * **Duty Toggle:** Disable specific days entirely (e.g., weekends or office closures) by unchecking the "Duty?" row.
     * **24H Mode:** Toggle individual days between 3-shift mode (AM/PM) and 24-hour duty mode.
+        * *Smart Default:* Only Public Holidays default to 24H mode. Weekends default to standard shifts.
 * **Smart Configuration:**
-    * **Dynamic Import:** Automatically detects and adds new staff names when importing balance files.
+    * **Dynamic Import:** "Import Previous Month" now scans for new names and offers to **overwrite** your settings to keep everything in sync.
     * **GUI Settings:** Adjust staff lists, daily requirements, and point values directly in the app.
 * **Data Integrity:** Imports previous month's balances (Carry Over) to ensure long-term fairness.
 
@@ -33,7 +34,7 @@ A professional automated rostering tool designed for 24/7 operations. It uses co
 
 ### 1. Initial Setup
 Navigate to the **Settings** tab:
-* **Daily Requirements:** Set how many people you need for each shift type (AM, PM, 24H, Standby).
+* **Daily Requirements:** Set how many people you need for each shift type.
 * **Points Scoring:** Adjust the weight of each shift and multipliers for Weekends/PH.
 * **Personnel List:** Enter staff names (separated by commas or new lines).
 * Click **Save & Reload** to apply changes.
@@ -48,29 +49,30 @@ Switch to the **Planner** tab:
     * `AM`/`PM`/`24H` = Forced Duty (Solver will keep this).
 5.  **Generate:** Click **GENERATE FILL**. The AI will fill empty slots while respecting your manual inputs and rules.
 
-### 3. Export
-* Click **Export to Excel** to save a formatted `.xlsx` file containing the roster and points summary.
+### 3. Importing & Exporting
+* **Import Previous Month:** Loads an Excel file to carry forward point balances.
+    * *Note:* If the file contains names not in your config, the app will ask if you want to **overwrite** your personnel list with the file's data.
+* **Export xlsx:** Saves the final roster and point summary to Excel.
 
-## 🏗 Building .exe
+### 4. Bulk Actions
+* **Reset Table:** Wipes the entire grid clean.
+* **Clear Duties:** Removes assigned duties (AM/PM/24H/SB) but keeps Leave (`X`) entries intact.
 
-To create a standalone executable for Windows (no Python required for end-users):
+## 🏗 Developer Notes (v3.0 Architecture)
 
-```bash
-python build.py
-```
-
-The output file `DutySchedulerPro.exe` will be generated in the `dist/` folder.
+The codebase is modularized for maintainability:
+* `gui.py`: Main Entry Point & Controller.
+* `planner_tab.py`: Grid UI and Interaction Logic.
+* `settings_tab.py`: Configuration UI.
+* `scheduler_engine.py`: Google OR-Tools Wrapper (Logic Layer).
+* `config_models.py`: Strict Data Classes for configuration.
+* `constants.py`: Enums and static constants.
 
 ## 📄 License
 
-This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International License**.
+This project is released under the **Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)**.
 
-You are free to:
-* **Share** — copy and redistribute the material in any medium or format.
-* **Adapt** — remix, transform, and build upon the material.
-
-Under the following terms:
-* **Attribution** — You must give appropriate credit.
-* **NonCommercial** — You may not use the material for commercial purposes.
+* **Usage:** Free for personal and non-commercial organizational use.
+* **Commercial Use:** Prohibited without express permission.
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
