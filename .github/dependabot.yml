@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # Enable version updates for pip
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Optional: Increase open pull request limit (default is 5)
+    open-pull-requests-limit: 10
