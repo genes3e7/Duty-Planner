@@ -1,10 +1,9 @@
 {
     "year": 2026,
     "month": 1,
-    "mode": "hybrid",
     "personnel": [
         "A",
-        "Bob",
+        "B",
         "C",
         "D",
         "E",
@@ -13,22 +12,21 @@
         "H",
         "I"
     ],
+    "mode": "hybrid",
     "points": {
         "AM": 1.0,
         "PM": 1.0,
-        "24H": 3.0,
-        "S/B": 0.0,
         "weekend_multiplier": 1.5,
-        "ph_multiplier": 2.0
+        "ph_multiplier": 2.0,
+        "24H": 3.0,
+        "S/B": 0.0
     },
     "constraints": {
-        "min_rest_after_24h": 1,
         "standby_per_day": 1,
         "personnel_needed_per_shift": {
             "AM": 1,
             "PM": 1,
             "24H": 1
         }
-    },
-    "workplace_name": "My Unit"
+    }
 }

@@ -1,184 +1,174 @@
 """
-scheduler_engine.py v7.0
-Updates:
-- Added inactive_days handling.
-- Skips constraints for inactive days.
+scheduler_engine.py
+
+Core Logic: Constraint Satisfaction Problem (CSP) Solver.
+Wraps Google OR-Tools to solve the rostering schedule.
 """
 
 import logging
-from typing import Dict, List, Tuple, Optional, Any
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional
 import holidays
 import pandas as pd
 from ortools.sat.python import cp_model # type: ignore
 import constants as C
+from config_models import AppConfig
+
+@dataclass
+class SolverRequest:
+    """
+    Data Transfer Object to pass raw data to the solver.
+    """
+    staff_ids: List[str]
+    year: int
+    month: int
+    fixed_assignments: Dict[Tuple[str, int], str]
+    day_modes: Dict[int, str]
+    inactive_days: List[int]
 
 class DutySchedulerEngine:
-    def __init__(
-        self,
-        config: Dict[str, Any],
-        prev_balance: Dict[str, float],
-        leaves: List[Tuple[str, int]],   
-        day_modes: Dict[int, str],       
-        fixed_assignments: Dict[Tuple[str, int], str],
-        inactive_days: List[int] = None # New Argument
-    ) -> None:
+    """The Engine class wrapping the CP-SAT solver."""
+
+    def __init__(self, config: AppConfig, prev_balance: Dict[str, float], request: SolverRequest) -> None:
+        """
+        Args:
+            config: Application rules/constraints.
+            prev_balance: Points brought forward.
+            request: Current solver request data.
+        """
         self.cfg = config
-        self.personnel = config.get('personnel', [])
-        self.prev_balance = prev_balance
-        self.leaves = leaves
-        self.day_modes = day_modes
-        self.fixed_assignments = fixed_assignments 
-        self.inactive_days = inactive_days if inactive_days else []
+        self.prev = prev_balance
+        self.req = request
         
-        self.year = int(config.get('year', 2025))
-        self.month = int(config.get('month', 1))
-        
+        # Calculate days in month
         try:
-            self.num_days = pd.Period(f'{self.year}-{self.month}').days_in_month
-        except Exception:
-            self.num_days = 30 
+            self.num_days = pd.Period(f'{self.req.year}-{self.req.month}').days_in_month
+        except: 
+            self.num_days = 30
             
-        self.sg_holidays = holidays.SG(years=self.year)
+        self.sg_holidays = holidays.SG(years=self.req.year)
         self.model = cp_model.CpModel()
-        self.shifts: Dict[Tuple[str, int, str], cp_model.IntVar] = {}
-        self.shift_types = C.SHIFT_TYPES
+        self.shifts = {} 
 
     def _is_ph_or_weekend(self, day: int) -> Tuple[bool, bool]:
+        """Checks if a day is a Public Holiday or Weekend."""
         try:
-            date = pd.Timestamp(year=self.year, month=self.month, day=day)
-            is_ph = date in self.sg_holidays
-            is_wknd = date.dayofweek >= 5
-            return bool(is_ph), bool(is_wknd)
-        except Exception:
-            return False, False
+            dt = pd.Timestamp(year=self.req.year, month=self.req.month, day=day)
+            return (dt in self.sg_holidays, dt.dayofweek >= 5)
+        except: 
+            return (False, False)
 
     def build_model(self) -> None:
+        """Constructs variables and constraints."""
         logging.info("Building CSP Model...")
 
         # 1. Variables
-        for p in self.personnel:
+        for p in self.req.staff_ids:
             for d in range(1, self.num_days + 1):
-                for s in self.shift_types:
-                    self.shifts[(p, d, s)] = self.model.NewBoolVar(f'shift_{p}_{d}_{s}')
+                for s in C.ACTIVE_DUTIES:
+                    self.shifts[(p, d, s)] = self.model.NewBoolVar(f's_{p}_{d}_{s}')
 
         # 2. Fixed Assignments
-        for (p, d), shift_type in self.fixed_assignments.items():
-            if d in self.inactive_days: continue # Skip fixed assignments on disabled days
-            
-            if shift_type == "X":
-                self.model.Add(sum(self.shifts[(p, d, s)] for s in self.shift_types) == 0)
-            elif shift_type in self.shift_types:
-                self.model.Add(self.shifts[(p, d, shift_type)] == 1)
+        for (p, d), val in self.req.fixed_assignments.items():
+            if d in self.req.inactive_days: continue
+            if val == C.ShiftType.LEAVE:
+                self.model.Add(sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) == 0)
+            elif val in C.ACTIVE_DUTIES:
+                self.model.Add(self.shifts[(p, d, val)] == 1)
 
-        # 3. Manpower Constraints (Skipped for Inactive Days)
-        reqs = self.cfg.get('constraints', {}).get('personnel_needed_per_shift', {})
-        sb_req = int(self.cfg.get('constraints', {}).get('standby_per_day', 1))
+        # 3. Manpower Constraints
+        c_reqs = self.cfg.constraints.personnel_needed_per_shift
         
         for d in range(1, self.num_days + 1):
-            # If day is inactive, enforce 0 shifts for everyone
-            if d in self.inactive_days:
-                for p in self.personnel:
-                    self.model.Add(sum(self.shifts[(p, d, s)] for s in self.shift_types) == 0)
+            if d in self.req.inactive_days:
+                # Force zero on inactive days
+                for p in self.req.staff_ids:
+                    self.model.Add(sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) == 0)
                 continue
 
-            # Otherwise, enforce requirements
-            mode = self.day_modes.get(d, "Shift") 
-            t_am = t_pm = t_24 = 0
+            mode = self.req.day_modes.get(d, C.ScheduleMode.SHIFT)
             
-            if mode == "24H":
-                t_24 = int(reqs.get('24H', 1))
-            else: 
-                t_am = int(reqs.get('AM', 1))
-                t_pm = int(reqs.get('PM', 1))
+            if mode == C.ScheduleMode.FULL_24H:
+                target_24 = c_reqs.get(C.ShiftType.FULL_24H.value, 1)
+                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.FULL_24H)] for p in self.req.staff_ids) == target_24)
+                # Ensure no AM/PM
+                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.AM)] for p in self.req.staff_ids) == 0)
+                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.PM)] for p in self.req.staff_ids) == 0)
+            else:
+                t_am = c_reqs.get(C.ShiftType.AM.value, 1)
+                t_pm = c_reqs.get(C.ShiftType.PM.value, 1)
+                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.AM)] for p in self.req.staff_ids) == t_am)
+                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.PM)] for p in self.req.staff_ids) == t_pm)
+                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.FULL_24H)] for p in self.req.staff_ids) == 0)
 
-            self.model.Add(sum(self.shifts[(p, d, 'AM')] for p in self.personnel) == t_am)
-            self.model.Add(sum(self.shifts[(p, d, 'PM')] for p in self.personnel) == t_pm)
-            self.model.Add(sum(self.shifts[(p, d, '24H')] for p in self.personnel) == t_24)
-            self.model.Add(sum(self.shifts[(p, d, 'S/B')] for p in self.personnel) == sb_req)
+            # Standby always needed
+            self.model.Add(sum(self.shifts[(p, d, C.ShiftType.STANDBY)] for p in self.req.staff_ids) == self.cfg.constraints.standby_per_day)
 
         # 4. Strict Gap Rule
-        for p in self.personnel:
+        for p in self.req.staff_ids:
+            # Exclusivity
             for d in range(1, self.num_days + 1):
-                self.model.Add(sum(self.shifts[(p, d, s)] for s in self.shift_types) <= 1)
-
+                self.model.Add(sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) <= 1)
+            # No consecutive days
             for d in range(1, self.num_days):
-                working_today = sum(self.shifts[(p, d, s)] for s in self.shift_types)
-                working_tmrw = sum(self.shifts[(p, d+1, s)] for s in self.shift_types)
-                self.model.Add(working_today + working_tmrw <= 1)
+                work_today = sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES)
+                work_tmrw = sum(self.shifts[(p, d+1, s)] for s in C.ACTIVE_DUTIES)
+                self.model.Add(work_today + work_tmrw <= 1)
 
-    def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], List[Dict[str, Any]]]]:
-        logging.info("Solving...")
+    def solve(self) -> Optional[Tuple[Dict, List]]:
+        """Executes the solver."""
         person_scores = []
-        SCALE = C.SCORE_SCALE_FACTOR 
+        SCALE = C.SCORE_SCALE_FACTOR
         
-        for p in self.personnel:
+        for p in self.req.staff_ids:
             score_expr = []
-            start_bal = int(self.prev_balance.get(p, 0.0) * SCALE)
+            start_bal = int(self.prev.get(p, 0.0) * SCALE)
             
             for d in range(1, self.num_days + 1):
-                if d in self.inactive_days: continue # No points for inactive days
-
+                if d in self.req.inactive_days: continue
                 is_ph, is_wknd = self._is_ph_or_weekend(d)
-                mult = 1.0
-                if is_ph: mult = float(self.cfg['points'].get('ph_multiplier', 1.0))
-                elif is_wknd: mult = float(self.cfg['points'].get('weekend_multiplier', 1.0))
                 
-                for s in self.shift_types:
-                    base = float(self.cfg['points'].get(s, 0.0))
+                mult = 1.0
+                if is_ph: mult = self.cfg.points.ph_multiplier
+                elif is_wknd: mult = self.cfg.points.weekend_multiplier
+                
+                for s in C.ACTIVE_DUTIES:
+                    base = self.cfg.points.get_by_type(s)
                     pts = int(base * mult * SCALE)
                     if pts > 0:
                         score_expr.append(self.shifts[(p, d, s)] * pts)
             
-            total = self.model.NewIntVar(-1000000, 1000000, f'total_{p}')
+            total = self.model.NewIntVar(-1000000, 1000000, f't_{p}')
             self.model.Add(total == sum(score_expr) + start_bal)
             person_scores.append(total)
 
-        min_s = self.model.NewIntVar(-1000000, 1000000, 'min_s')
-        max_s = self.model.NewIntVar(-1000000, 1000000, 'max_s')
+        # Minimize Variance
+        min_s = self.model.NewIntVar(-1000000, 1000000, 'min')
+        max_s = self.model.NewIntVar(-1000000, 1000000, 'max')
         self.model.AddMinEquality(min_s, person_scores)
         self.model.AddMaxEquality(max_s, person_scores)
         
-        sb_counts = []
-        for p in self.personnel:
-            count = sum(self.shifts[(p, d, 'S/B')] for d in range(1, self.num_days+1))
-            sb_counts.append(count)
-        
-        min_sb = self.model.NewIntVar(0, 31, 'min_sb')
-        max_sb = self.model.NewIntVar(0, 31, 'max_sb')
-        self.model.AddMinEquality(min_sb, sb_counts)
-        self.model.AddMaxEquality(max_sb, sb_counts)
-
-        self.model.Minimize(
-            (max_s - min_s) * C.WEIGHT_POINTS_BALANCE + 
-            (max_sb - min_sb) * C.WEIGHT_STANDBY_BALANCE
-        )
+        self.model.Minimize((max_s - min_s))
 
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = 15.0 
+        solver.parameters.max_time_in_seconds = 15.0
         status = solver.Solve(self.model)
         
         if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-            return self._format_results(solver, person_scores, SCALE)
-        else:
-            return None
-
-    def _format_results(self, solver, person_scores, scale):
-        schedule = {}
-        for p in self.personnel:
-            for d in range(1, self.num_days + 1):
-                if d in self.inactive_days: continue
-                for s in self.shift_types:
-                    if solver.Value(self.shifts[(p, d, s)]):
-                        schedule[(p, d)] = s
-        summary = []
-        for i, p in enumerate(self.personnel):
-            final_score = solver.Value(person_scores[i])
-            start_bal = self.prev_balance.get(p, 0.0)
-            month_pts = (final_score / scale) - start_bal
-            summary.append({
-                'Name': p, 
-                'Brought Fwd': start_bal, 
-                'Month Pts': month_pts, 
-                'Carry Over': final_score / scale
-            })
-        return schedule, summary
+            sched = {}
+            for p in self.req.staff_ids:
+                for d in range(1, self.num_days + 1):
+                    for s in C.ACTIVE_DUTIES:
+                        if solver.Value(self.shifts[(p, d, s)]):
+                            sched[(p, d)] = s
+            
+            summary = []
+            for i, p in enumerate(self.req.staff_ids):
+                final = solver.Value(person_scores[i])
+                start = self.prev.get(p, 0.0)
+                summary.append({
+                    'Name': p, 'Brought Fwd': start, 
+                    'Month Pts': (final/SCALE) - start, 'Carry Over': final/SCALE
+                })
+            return sched, summary
+        return None
