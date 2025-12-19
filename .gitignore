@@ -1,27 +1,28 @@
-# Python
+# Python artifacts
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual Environment
+# Virtual Environments
 venv/
 env/
-.env
+.venv/
 
-# IDE Settings
-.vscode/
+# Editor/IDE files
 .idea/
+.vscode/
+*.swp
 
-# Distribution / Build (PyInstaller)
+# Build artifacts (PyInstaller)
 build/
 dist/
 *.spec
 
-# Runtime Data
+# Runtime logs
 app.log
-config.json
-*.xlsx
-*.xls
 
-# Mac Metadata
-.DS_Store
+# User Configuration (Optional - exclude if you want specific user settings ignored)
+# config.json
+
+# Excel Exports
+*.xlsx

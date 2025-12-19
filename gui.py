@@ -1,263 +1,453 @@
 """
 gui.py
 
-The Main Entry Point.
-Uses CustomTkinter for the GUI, Threading for responsiveness,
-and the Logic Engine for calculations.
+Main Application Entry Point.
+Features:
+- Responsive Grid with horizontal scrolling.
+- Settings Tab for easy configuration.
+- Threaded solver execution.
+- Smart state management.
 """
 
 import calendar
 import datetime
-import logging
 import threading
+import logging
+import sys
+from typing import Dict, List, Tuple, Any, Optional
 from tkinter import filedialog, messagebox
-from typing import Dict, List, Tuple, Optional, Any, Union
 
-import customtkinter as ctk  # type: ignore
+import customtkinter as ctk # type: ignore
 import pandas as pd
+import holidays
 
 from data_manager import DataManager
 from scheduler_engine import DutySchedulerEngine
 import constants as C
 import logger
 
-# Init Logger
 logger.setup_logger()
-
-# Theme Setup
 ctk.set_appearance_mode(C.THEME_MODE)
 ctk.set_default_color_theme(C.THEME_COLOR)
 
+class ShiftGridCell(ctk.CTkButton):
+    def __init__(self, master, person: str, day: int, parent_app):
+        super().__init__(
+            master, 
+            text="", 
+            width=42, 
+            height=30, 
+            corner_radius=4, 
+            border_width=1, 
+            border_color="#D0D0D0", 
+            fg_color=C.COLOR_CELL_DEFAULT,
+            text_color=C.COLOR_TEXT_BLACK,
+            hover_color="#E0E0E0", 
+            command=self._on_click
+        )
+        self.person = person
+        self.day = day
+        self.app = parent_app
+        self.current_val = "" 
+
+    def _on_click(self) -> None:
+        mode = self.app.get_day_mode(self.day)
+        if mode == "24H":
+            cycle = ["", "X", "24H"]
+        else:
+            cycle = ["", "X", "AM", "PM"]
+        try:
+            idx = cycle.index(self.current_val)
+            next_val = cycle[(idx + 1) % len(cycle)]
+        except ValueError:
+            next_val = ""
+        self.set_val(next_val)
+
+    def set_val(self, val: str) -> None:
+        self.current_val = val
+        bg = C.COLOR_CELL_DEFAULT
+        txt = C.COLOR_TEXT_BLACK
+        
+        if val == "X": bg, txt = C.COLOR_CELL_X, C.COLOR_TEXT_WHITE
+        elif val == "AM": bg, txt = C.COLOR_CELL_AM, C.COLOR_TEXT_WHITE
+        elif val == "PM": bg, txt = C.COLOR_CELL_PM, C.COLOR_TEXT_WHITE
+        elif val == "24H": bg, txt = C.COLOR_CELL_24H, C.COLOR_TEXT_WHITE
+        elif val == "S/B": bg, txt = C.COLOR_CELL_PH, C.COLOR_TEXT_BLACK
+        
+        self.configure(text=val, fg_color=bg, text_color=txt)
+        self.configure(hover_color="#E0E0E0" if val == "" else bg)
+        self.app.recalculate_points()
 
 class App(ctk.CTk):
-    """Main Application Window."""
-
     def __init__(self) -> None:
         super().__init__()
         self.title(C.APP_TITLE)
         self.geometry(C.APP_GEOMETRY)
-
-        logging.info("Initializing GUI...")
-
-        # --- Application State ---
-        self.config: Dict[str, Any] = DataManager.load_config()
+        self.after(0, lambda: self.state('zoomed') if "win" in sys.platform else self.attributes('-zoomed', True))
+        
+        self.config = DataManager.load_config()
         self.prev_balance: Dict[str, float] = {}
-        self.leaves: List[Tuple[str, int]] = []
-        self.generated_schedule: Optional[Dict[Tuple[str, int], str]] = None
-        self.generated_summary: Optional[List[Dict[str, Union[str, float]]]] = None
+        self.last_loaded_date: Optional[Tuple[int, int]] = None
+        self.all_24h_active = False
+        
+        self.cells: Dict[Tuple[str, int], ShiftGridCell] = {}
+        self.day_mode_vars: Dict[int, ctk.StringVar] = {} 
+        self.stat_labels: Dict[str, Dict[str, ctk.CTkLabel]] = {}
 
-        # --- UI Layout ---
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
         self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
-
+        self.tabview.grid(row=0, column=0, sticky="nsew", padx=10, pady=5)
         self.tab_plan = self.tabview.add("Planner")
         self.tab_settings = self.tabview.add("Settings")
-
-        self._setup_planner_tab()
-        self._setup_settings_tab()
-
-        logging.info("GUI Ready.")
-
-    def _setup_planner_tab(self) -> None:
-        """Constructs the main planner dashboard."""
         
-        # 1. Configuration Row
-        frame_setup = ctk.CTkFrame(self.tab_plan)
-        frame_setup.pack(fill="x", padx=10, pady=5)
+        self._init_planner_tab()
+        self._init_settings_tab()
 
-        ctk.CTkLabel(frame_setup, text="Workplace:").grid(row=0, column=0, padx=5)
-        self.entry_workplace = ctk.CTkEntry(frame_setup, width=200)
-        self.entry_workplace.insert(0, str(self.config.get('workplace_name', '')))
-        self.entry_workplace.grid(row=0, column=1, padx=5)
-
-        ctk.CTkLabel(frame_setup, text="Date:").grid(row=0, column=2, padx=5)
-        self.combo_month = ctk.CTkComboBox(frame_setup, values=list(calendar.month_name)[1:], width=110)
-        curr_m = int(self.config.get('month', datetime.datetime.now().month))
-        self.combo_month.set(list(calendar.month_name)[1:][curr_m - 1])
-        self.combo_month.grid(row=0, column=3, padx=5)
-
-        self.entry_year = ctk.CTkEntry(frame_setup, width=60)
-        self.entry_year.insert(0, str(self.config.get('year', datetime.datetime.now().year)))
-        self.entry_year.grid(row=0, column=4, padx=5)
-
-        self.btn_import = ctk.CTkButton(frame_setup, text="Import Balance", command=self.import_file)
-        self.btn_import.grid(row=0, column=5, padx=10)
-        self.lbl_import = ctk.CTkLabel(frame_setup, text="No file loaded", font=("Arial", 10), text_color="gray")
-        self.lbl_import.grid(row=1, column=5)
-
-        # 2. Constraints Row
-        frame_cons = ctk.CTkFrame(self.tab_plan)
-        frame_cons.pack(fill="x", padx=10, pady=5)
+    def _init_planner_tab(self) -> None:
+        self.tab_plan.grid_columnconfigure(0, weight=1)
+        self.tab_plan.grid_rowconfigure(1, weight=1)
+        self._setup_top_bar(self.tab_plan)
         
-        ctk.CTkLabel(frame_cons, text="Leave Constraints").pack(side="left", padx=10)
-        self.combo_person = ctk.CTkComboBox(frame_cons, values=self.config.get('personnel', []))
-        self.combo_person.pack(side="left", padx=5)
-        self.entry_day = ctk.CTkEntry(frame_cons, placeholder_text="Day", width=50)
-        self.entry_day.pack(side="left", padx=5)
+        self.grid_container = ctk.CTkFrame(self.tab_plan, fg_color="transparent")
+        self.grid_container.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.scroll_frame = ctk.CTkScrollableFrame(self.grid_container, orientation="horizontal")
+        self.scroll_frame.pack(fill="both", expand=True)
+        self._setup_bottom_bar(self.tab_plan)
+
+    def _init_settings_tab(self) -> None:
+        frame = ctk.CTkScrollableFrame(self.tab_settings)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        ctk.CTkButton(frame_cons, text="+", width=40, command=self.add_constraint).pack(side="left", padx=5)
-        ctk.CTkButton(frame_cons, text="Clear", width=50, fg_color="firebrick", command=self.clear_constraints).pack(side="left", padx=5)
+        ctk.CTkLabel(frame, text="Configuration", font=("Arial", 20, "bold")).pack(pady=10)
+        
+        # Requirements
+        ctk.CTkLabel(frame, text="Daily Requirements", font=("Arial", 14, "bold")).pack(anchor="w", pady=(10, 5))
+        self.entries_reqs: Dict[str, ctk.CTkEntry] = {}
+        
+        f1 = ctk.CTkFrame(frame)
+        f1.pack(fill="x", pady=2)
+        ctk.CTkLabel(f1, text="AM Shift:", width=80).pack(side="left")
+        e1 = ctk.CTkEntry(f1, width=50)
+        e1.insert(0, str(self.config['constraints']['personnel_needed_per_shift'].get('AM', 1)))
+        e1.pack(side="left")
+        self.entries_reqs['AM'] = e1
+        
+        ctk.CTkLabel(f1, text="PM Shift:", width=80).pack(side="left", padx=20)
+        e2 = ctk.CTkEntry(f1, width=50)
+        e2.insert(0, str(self.config['constraints']['personnel_needed_per_shift'].get('PM', 1)))
+        e2.pack(side="left")
+        self.entries_reqs['PM'] = e2
 
-        self.listbox_cons = ctk.CTkTextbox(self.tab_plan, height=80)
-        self.listbox_cons.pack(fill="x", padx=10, pady=5)
-        self.listbox_cons.insert("0.0", "No constraints.\n")
+        f2 = ctk.CTkFrame(frame)
+        f2.pack(fill="x", pady=2)
+        ctk.CTkLabel(f2, text="24H Duty:", width=80).pack(side="left")
+        e3 = ctk.CTkEntry(f2, width=50)
+        e3.insert(0, str(self.config['constraints']['personnel_needed_per_shift'].get('24H', 1)))
+        e3.pack(side="left")
+        self.entries_reqs['24H'] = e3
 
-        # 3. Actions
-        frame_act = ctk.CTkFrame(self.tab_plan)
-        frame_act.pack(fill="x", padx=10, pady=10)
-        self.btn_gen = ctk.CTkButton(frame_act, text="GENERATE PREVIEW", command=self.run_generation)
-        self.btn_gen.pack(side="left", fill="x", expand=True, padx=5)
-        self.btn_save = ctk.CTkButton(frame_act, text="SAVE EXCEL", fg_color="green", state="disabled", command=self.save_excel)
-        self.btn_save.pack(side="left", fill="x", expand=True, padx=5)
+        ctk.CTkLabel(f2, text="Standby:", width=80).pack(side="left", padx=20)
+        e4 = ctk.CTkEntry(f2, width=50)
+        e4.insert(0, str(self.config['constraints'].get('standby_per_day', 1)))
+        e4.pack(side="left")
+        self.entries_reqs['SB'] = e4
 
-        # 4. Preview
-        self.txt_preview = ctk.CTkTextbox(self.tab_plan)
-        self.txt_preview.pack(fill="both", expand=True, padx=10, pady=5)
-
-    def _setup_settings_tab(self) -> None:
-        """Constructs the settings configurator."""
-        self.frame_sets = ctk.CTkScrollableFrame(self.tab_settings)
-        self.frame_sets.pack(fill="both", expand=True)
-
-        ctk.CTkLabel(self.frame_sets, text="Mode").pack(anchor="w", padx=10)
-        self.combo_mode = ctk.CTkComboBox(self.frame_sets, values=C.SCHEDULING_MODES)
-        self.combo_mode.set(str(self.config.get("mode", "hybrid")))
-        self.combo_mode.pack(anchor="w", padx=10, pady=5)
-
-        ctk.CTkLabel(self.frame_sets, text="Personnel (csv)").pack(anchor="w", padx=10)
-        self.entry_ppl = ctk.CTkTextbox(self.frame_sets, height=60)
-        self.entry_ppl.insert("0.0", ", ".join(self.config.get("personnel", [])))
-        self.entry_ppl.pack(fill="x", padx=10, pady=5)
-
-        # Dynamic Points
+        # Points
+        ctk.CTkLabel(frame, text="Points Scoring", font=("Arial", 14, "bold")).pack(anchor="w", pady=(20, 5))
         self.entries_pts: Dict[str, ctk.CTkEntry] = {}
-        for k, v in self.config.get("points", {}).items():
-            f = ctk.CTkFrame(self.frame_sets)
-            f.pack(fill="x", padx=10, pady=2)
-            ctk.CTkLabel(f, text=f"Points {k}:", width=120, anchor="w").pack(side="left")
-            e = ctk.CTkEntry(f)
-            e.insert(0, str(v))
-            e.pack(side="right", expand=True, fill="x")
+        keys = ["AM", "PM", "24H", "S/B", "weekend_multiplier", "ph_multiplier"]
+        for k in keys:
+            val = self.config.get("points", {}).get(k, 1.0)
+            sub = ctk.CTkFrame(frame)
+            sub.pack(fill="x", pady=2)
+            lbl = k.replace("_", " ").title() + (" (x)" if "multiplier" in k else " (pts)")
+            ctk.CTkLabel(sub, text=lbl, width=180, anchor="w").pack(side="left", padx=5)
+            e = ctk.CTkEntry(sub)
+            e.insert(0, str(val))
+            e.pack(side="right", expand=True, fill="x", padx=5)
             self.entries_pts[k] = e
 
-        ctk.CTkButton(self.tab_settings, text="Save Settings", command=self.save_settings).pack(pady=10)
+        # Personnel
+        ctk.CTkLabel(frame, text="Personnel List", font=("Arial", 14, "bold")).pack(anchor="w", pady=(20,5))
+        self.entry_ppl = ctk.CTkTextbox(frame, height=120)
+        ppl_str = ", ".join(self.config.get("personnel", []))
+        self.entry_ppl.insert("0.0", ppl_str)
+        self.entry_ppl.pack(fill="x", pady=5)
+        
+        self.combo_mode = ctk.CTkComboBox(frame, values=C.SCHEDULING_MODES)
+        self.combo_mode.set(str(self.config.get("mode", "hybrid")))
 
-    # --- Helpers ---
-    def _get_max_days(self) -> int:
-        try:
-            y = int(self.entry_year.get())
-            m = list(calendar.month_name).index(self.combo_month.get())
-            return pd.Period(f'{y}-{m}').days_in_month
-        except Exception:
-            return 31
+        ctk.CTkButton(frame, text="Save & Reload", fg_color="green", height=40, command=self.save_settings).pack(pady=30)
+
+    def _setup_top_bar(self, parent):
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        
+        ctk.CTkLabel(frame, text="Unit:", font=("Arial", 12, "bold")).pack(side="left", padx=5)
+        self.ent_unit = ctk.CTkEntry(frame, width=150)
+        self.ent_unit.insert(0, str(self.config.get('workplace_name', '')))
+        self.ent_unit.pack(side="left", padx=5)
+
+        self.cmb_month = ctk.CTkComboBox(frame, values=list(calendar.month_name)[1:], width=110)
+        curr_m = self.config.get('month', datetime.datetime.now().month)
+        try: self.cmb_month.set(list(calendar.month_name)[curr_m]) 
+        except: self.cmb_month.set("January")
+        self.cmb_month.pack(side="left", padx=5)
+
+        self.ent_year = ctk.CTkEntry(frame, width=60)
+        self.ent_year.insert(0, str(self.config.get('year', datetime.datetime.now().year)))
+        self.ent_year.pack(side="left", padx=5)
+
+        ctk.CTkButton(frame, text="Load Grid", command=self.refresh_grid).pack(side="left", padx=10)
+        self.btn_toggle_24 = ctk.CTkButton(frame, text="Check All 24H", width=100, fg_color="#7B1FA2", hover_color="#4A148C", command=self.toggle_all_24h)
+        self.btn_toggle_24.pack(side="left", padx=10)
+
+        ctk.CTkButton(frame, text="⚙ Config", fg_color="#607D8B", width=80, command=self.goto_settings).pack(side="right", padx=5)
+        ctk.CTkButton(frame, text="Import Balances", width=110, command=self.import_balances).pack(side="right", padx=5)
+        ctk.CTkButton(frame, text="Clear Duties", fg_color="#EF5350", hover_color="#C62828", width=90, command=self.clear_duties).pack(side="right", padx=5)
+        ctk.CTkButton(frame, text="Reset All", fg_color="#D32F2F", hover_color="#B71C1C", width=80, command=self.reset_all).pack(side="right", padx=5)
+
+    def _setup_bottom_bar(self, parent):
+        frame = ctk.CTkFrame(parent, height=50, fg_color="transparent")
+        frame.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
+        self.lbl_status = ctk.CTkLabel(frame, text="Ready.", text_color="#555555")
+        self.lbl_status.pack(side="left", padx=10)
+        self.btn_save = ctk.CTkButton(frame, text="Export Excel", state="disabled", fg_color="#2E7D32", hover_color="#1B5E20", command=self.save_excel_safely)
+        self.btn_save.pack(side="right", padx=10)
+        self.btn_run = ctk.CTkButton(frame, text="GENERATE FILL", font=("Arial", 13, "bold"), fg_color="#1565C0", hover_color="#0D47A1", command=self.run_solver)
+        self.btn_run.pack(side="right", padx=10)
 
     # --- Actions ---
-    def add_constraint(self) -> None:
-        p = self.combo_person.get()
-        d_str = self.entry_day.get()
-        if not p or not d_str.isdigit():
-            messagebox.showwarning("Error", "Invalid Input")
-            return
-        d = int(d_str)
-        if not (1 <= d <= self._get_max_days()):
-            messagebox.showerror("Error", "Invalid Day")
-            return
-        
-        self.leaves.append((p, d))
-        self.listbox_cons.insert("end", f"{p} - Day {d} (Leave)\n")
-        self.entry_day.delete(0, "end")
+    def goto_settings(self): self.tabview.set("Settings")
 
-    def clear_constraints(self) -> None:
-        if messagebox.askyesno("Confirm", "Clear all?"):
-            self.leaves = []
-            self.listbox_cons.delete("0.0", "end")
-
-    def save_settings(self) -> None:
+    def save_settings(self):
+        saved_duties = {k: v.current_val for k, v in self.cells.items() if v.current_val}
+        saved_modes = {d: v.get() for d, v in self.day_mode_vars.items()}
         try:
-            self.config['mode'] = self.combo_mode.get()
-            ppl = self.entry_ppl.get("0.0", "end").strip()
-            if not ppl: raise ValueError("Personnel empty")
-            self.config['personnel'] = [x.strip() for x in ppl.split(",") if x.strip()]
-            
+            am = int(self.entries_reqs['AM'].get())
+            pm = int(self.entries_reqs['PM'].get())
+            h24 = int(self.entries_reqs['24H'].get())
+            sb = int(self.entries_reqs['SB'].get())
+            if am < 0 or pm < 0 or h24 < 0: raise ValueError("Requirements cannot be negative.")
+
+            self.config['constraints']['personnel_needed_per_shift'] = {'AM': am, 'PM': pm, '24H': h24}
+            self.config['constraints']['standby_per_day'] = sb
+
             for k, e in self.entries_pts.items():
                 self.config['points'][k] = float(e.get())
+
+            raw = self.entry_ppl.get("0.0", "end").replace("\n", ",")
+            ppl_clean = [x.strip() for x in raw.split(",") if x.strip()]
+            if not ppl_clean: raise ValueError("Personnel list empty.")
+            self.config['personnel'] = ppl_clean
             
             DataManager.save_config(self.config)
-            self.combo_person.configure(values=self.config['personnel'])
-            messagebox.showinfo("Success", "Settings Saved")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+            self.config = DataManager.load_config()
+            self.last_loaded_date = None
+            self.refresh_grid()
+            
+            for d, mode in saved_modes.items():
+                if d in self.day_mode_vars: self.day_mode_vars[d].set(mode)
+            for (p, d), val in saved_duties.items():
+                if (p, d) in self.cells: self.cells[(p, d)].set_val(val)
 
-    def import_file(self) -> None:
-        fp = filedialog.askopenfilename()
-        if not fp: return
+            messagebox.showinfo("Success", "Settings Saved.")
+            self.tabview.set("Planner")
+        except Exception as e:
+            messagebox.showerror("Error", f"Save Failed: {str(e)}")
+
+    def toggle_all_24h(self):
+        new_state = "24H" if not self.all_24h_active else "Shift"
+        for var in self.day_mode_vars.values(): var.set(new_state)
+        self.all_24h_active = not self.all_24h_active
+        self.btn_toggle_24.configure(text="Uncheck All" if self.all_24h_active else "Check All 24H")
+
+    def clear_duties(self):
+        if not messagebox.askyesno("Confirm", "Clear duties?"): return
+        for cell in self.cells.values():
+            if cell.current_val in ["AM", "PM", "24H", "S/B"]: cell.set_val("")
+        self.recalculate_points()
+
+    def reset_all(self):
+        if not messagebox.askyesno("Confirm", "Reset all?"): return
+        for cell in self.cells.values(): cell.set_val("")
+        self.recalculate_points()
+
+    def get_day_mode(self, day: int) -> str:
+        return self.day_mode_vars.get(day, ctk.StringVar(value="Shift")).get()
+
+    def refresh_grid(self):
         try:
-            self.prev_balance = DataManager.load_previous_balance(fp)
-            self.lbl_import.configure(text=f"Loaded: {len(self.prev_balance)}", text_color="green")
-            messagebox.showinfo("Success", "Import Complete")
+            year = int(self.ent_year.get())
+            month_idx = list(calendar.month_name).index(self.cmb_month.get())
+            if month_idx == 0: month_idx = 1
+            if self.last_loaded_date == (month_idx, year):
+                self.lbl_status.configure(text=f"Loaded {self.cmb_month.get()}")
+                return
+            self.current_days = pd.Period(f'{year}-{month_idx}').days_in_month
+            personnel = self.config.get('personnel', [])
+            self.sg_holidays = holidays.SG(years=year)
+            if not personnel:
+                messagebox.showerror("Config", "No personnel.")
+                return
         except Exception as e:
             messagebox.showerror("Error", str(e))
-
-    # --- Async Generation ---
-    def run_generation(self) -> None:
-        if not self.entry_workplace.get():
-            messagebox.showwarning("Missing", "Enter Workplace Name")
             return
-        
-        # Update config state from UI
-        self.config['workplace_name'] = self.entry_workplace.get()
-        self.config['year'] = int(self.entry_year.get())
-        self.config['month'] = list(calendar.month_name).index(self.combo_month.get())
 
-        self.txt_preview.delete("0.0", "end")
-        self.txt_preview.insert("0.0", "Calculating... (GUI is active)\n")
-        self.btn_gen.configure(state="disabled")
-        
-        # Threading
-        threading.Thread(target=self._worker, daemon=True).start()
+        for widget in self.scroll_frame.winfo_children(): widget.destroy()
+        self.cells.clear()
+        self.day_mode_vars.clear()
+        self.stat_labels.clear()
+        self.all_24h_active = False
+        self.btn_toggle_24.configure(text="Check All 24H")
 
-    def _worker(self) -> None:
         try:
-            engine = DutySchedulerEngine(self.config, self.prev_balance, self.leaves)
+            ctk.CTkLabel(self.scroll_frame, text="Date", font=("Arial", 10, "bold")).grid(row=0, column=0, padx=5, sticky="w")
+            ctk.CTkLabel(self.scroll_frame, text="Day", font=("Arial", 10, "bold")).grid(row=1, column=0, padx=5, sticky="w")
+            ctk.CTkLabel(self.scroll_frame, text="24H?", font=("Arial", 10, "bold")).grid(row=2, column=0, padx=5, sticky="w")
+            ctk.CTkLabel(self.scroll_frame, text="NAME", font=("Arial", 12, "bold")).grid(row=3, column=0, padx=5, sticky="w")
+
+            for d in range(1, self.current_days + 1):
+                dt = pd.Timestamp(year=year, month=month_idx, day=d)
+                is_ph = dt in self.sg_holidays
+                is_wknd = dt.dayofweek >= 5
+                bg = C.COLOR_PH_BG if is_ph else (C.COLOR_HEADER_BG if is_wknd else "transparent")
+                
+                ctk.CTkLabel(self.scroll_frame, text=str(d), width=40, fg_color=bg).grid(row=0, column=d, padx=1, sticky="nsew")
+                ctk.CTkLabel(self.scroll_frame, text=dt.strftime("%a"), width=40, fg_color=bg).grid(row=1, column=d, padx=1, sticky="nsew")
+                
+                val = "24H" if (is_wknd or is_ph) else "Shift"
+                var = ctk.StringVar(value=val)
+                self.day_mode_vars[d] = var
+                ctk.CTkCheckBox(self.scroll_frame, text="", variable=var, onvalue="24H", offvalue="Shift", width=20).grid(row=2, column=d)
+
+            start_col = self.current_days + 1
+            ctk.CTkLabel(self.scroll_frame, text="Brought Fwd", font=("Arial", 10, "bold")).grid(row=3, column=start_col+1, padx=5)
+            ctk.CTkLabel(self.scroll_frame, text="Month Pts", font=("Arial", 10, "bold")).grid(row=3, column=start_col+2, padx=5)
+            ctk.CTkLabel(self.scroll_frame, text="Carry Over", font=("Arial", 10, "bold")).grid(row=3, column=start_col+3, padx=5)
+
+            for idx, person in enumerate(personnel):
+                r = idx + 4
+                ctk.CTkLabel(self.scroll_frame, text=person).grid(row=r, column=0, sticky="w", padx=5)
+                for d in range(1, self.current_days + 1):
+                    cell = ShiftGridCell(self.scroll_frame, person, d, self)
+                    cell.grid(row=r, column=d, padx=1, pady=1, sticky="nsew")
+                    self.cells[(person, d)] = cell
+                
+                self.stat_labels[person] = {
+                    "BF": ctk.CTkLabel(self.scroll_frame, text="0.0"),
+                    "MP": ctk.CTkLabel(self.scroll_frame, text="0.0"),
+                    "CO": ctk.CTkLabel(self.scroll_frame, text="0.0")
+                }
+                self.stat_labels[person]["BF"].grid(row=r, column=start_col+1, padx=5)
+                self.stat_labels[person]["MP"].grid(row=r, column=start_col+2, padx=5)
+                self.stat_labels[person]["CO"].grid(row=r, column=start_col+3, padx=5)
+
+            self.scroll_frame.update_idletasks()
+            self.recalculate_points()
+            self.last_loaded_date = (month_idx, year)
+            self.lbl_status.configure(text=f"Loaded {self.cmb_month.get()}")
+            self.btn_save.configure(state="normal")
+        except Exception as e:
+            messagebox.showerror("Render Error", str(e))
+
+    def recalculate_points(self):
+        try:
+            year = int(self.ent_year.get())
+            month_idx = list(calendar.month_name).index(self.cmb_month.get())
+            if month_idx == 0: month_idx = 1
+            points = self.config.get('points', {})
+            for p in self.config.get('personnel', []):
+                bf = self.prev_balance.get(p, 0.0)
+                cur = 0.0
+                for d in range(1, self.current_days + 1):
+                    if (p, d) in self.cells:
+                        val = self.cells[(p, d)].current_val
+                        if val in C.SHIFT_TYPES:
+                            dt = pd.Timestamp(year=year, month=month_idx, day=d)
+                            mult = 1.0
+                            if dt in self.sg_holidays: mult = points.get('ph_multiplier', 1.0)
+                            elif dt.dayofweek >= 5: mult = points.get('weekend_multiplier', 1.0)
+                            cur += (points.get(val, 0) * mult)
+                if p in self.stat_labels:
+                    self.stat_labels[p]["BF"].configure(text=f"{bf:.1f}")
+                    self.stat_labels[p]["MP"].configure(text=f"{cur:.1f}")
+                    self.stat_labels[p]["CO"].configure(text=f"{bf+cur:.1f}")
+        except: pass
+
+    def validate_schedule(self):
+        errors = []
+        for p in self.config.get('personnel', []):
+            for d in range(1, self.current_days):
+                if (p, d) in self.cells and (p, d+1) in self.cells:
+                    c1 = self.cells[(p, d)].current_val
+                    c2 = self.cells[(p, d+1)].current_val
+                    if c1 in C.SHIFT_TYPES and c2 in C.SHIFT_TYPES:
+                        errors.append(f"{p}: Consecutive duty Day {d}")
+        return errors
+
+    def run_solver(self):
+        self.btn_run.configure(state="disabled")
+        self.lbl_status.configure(text="Solving...", text_color="blue")
+        fixed = {k: v.current_val for k, v in self.cells.items() if v.current_val}
+        modes = {d: v.get() for d, v in self.day_mode_vars.items()}
+        self.config['workplace_name'] = self.ent_unit.get()
+        self.config['year'] = int(self.ent_year.get())
+        self.config['month'] = list(calendar.month_name).index(self.cmb_month.get())
+        threading.Thread(target=self._worker, args=(fixed, modes), daemon=True).start()
+
+    def _worker(self, fixed, modes):
+        try:
+            engine = DutySchedulerEngine(self.config, self.prev_balance, [], modes, fixed)
             engine.build_model()
             res = engine.solve()
             self.after(0, self._on_success, res)
         except Exception as e:
             self.after(0, self._on_error, str(e))
 
-    def _on_success(self, res: Any) -> None:
-        self.btn_gen.configure(state="normal")
+    def _on_success(self, res):
+        self.btn_run.configure(state="normal")
         if res:
-            self.generated_schedule, self.generated_summary = res
-            self.txt_preview.delete("0.0", "end")
-            
-            # Format Output
-            out = f"Plan Generated!\n{'-'*40}\nName\tCarry Over\n{'-'*40}\n"
-            for p in self.generated_summary: # type: ignore
-                out += f"{p['Name']:<10}\t{float(p['Carry Over']):.1f}\n" # type: ignore
-            
-            self.txt_preview.insert("0.0", out)
-            self.btn_save.configure(state="normal")
+            sched, _ = res
+            for (p, d), val in sched.items():
+                if (p, d) in self.cells: self.cells[(p, d)].set_val(val)
+            self.recalculate_points()
+            self.lbl_status.configure(text="Filled!", text_color="green")
         else:
-            self.txt_preview.insert("end", "\nNo solution found.")
+            self.lbl_status.configure(text="Failed.", text_color="red")
+            messagebox.showwarning("Solver", "No solution found.")
 
-    def _on_error(self, msg: str) -> None:
-        self.btn_gen.configure(state="normal")
+    def _on_error(self, msg):
+        self.btn_run.configure(state="normal")
         messagebox.showerror("Error", msg)
 
-    def save_excel(self) -> None:
-        if not self.generated_schedule: return
-        fp = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")])
+    def save_excel_safely(self):
+        errs = self.validate_schedule()
+        if errs and not messagebox.askyesno("Warning", "Issues found:\n" + "\n".join(errs[:3])): return
+        sched = {k: v.current_val for k, v in self.cells.items() if v.current_val}
+        summ = []
+        for p in self.config['personnel']:
+            if p in self.stat_labels:
+                summ.append({'Name': p, 'Brought Fwd': float(self.stat_labels[p]["BF"].cget("text")),
+                    'Month Pts': float(self.stat_labels[p]["MP"].cget("text")),
+                    'Carry Over': float(self.stat_labels[p]["CO"].cget("text"))})
+        fp = filedialog.asksaveasfilename(defaultextension=".xlsx")
         if fp:
             try:
-                DataManager.export_schedule(
-                    self.generated_schedule, self.generated_summary, # type: ignore
-                    self.config, self.leaves, fp
-                )
-                messagebox.showinfo("Success", "File Saved")
-            except Exception as e:
-                messagebox.showerror("Error", str(e))
+                DataManager.export_schedule(sched, summ, self.config, [], fp)
+                messagebox.showinfo("Success", "Saved")
+            except Exception as e: messagebox.showerror("Error", str(e))
 
+    def import_balances(self):
+        fp = filedialog.askopenfilename()
+        if fp:
+            try:
+                self.prev_balance = DataManager.load_previous_balance(fp)
+                self.recalculate_points() 
+                messagebox.showinfo("Success", "Loaded")
+            except Exception as e: messagebox.showerror("Error", str(e))
 
 if __name__ == "__main__":
     app = App()
