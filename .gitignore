@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+env/
+.env
+
+# IDE Settings
+.vscode/
+.idea/
+
+# Distribution / Build (PyInstaller)
+build/
+dist/
+*.spec
+
+# Runtime Data
+app.log
+config.json
+*.xlsx
+*.xls
+
+# Mac Metadata
+.DS_Store
