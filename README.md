@@ -1,4 +1,4 @@
-# Duty Scheduler Pro v6.0
+# Duty Scheduler Pro v6.4
 
 A professional automated rostering tool designed for 24/7 operations. It uses constraint programming (Google OR-Tools) to generate fair, rule-compliant schedules while optimizing for equal point distribution.
 
@@ -6,46 +6,59 @@ A professional automated rostering tool designed for 24/7 operations. It uses co
 
 * **Interactive Grid:** Excel-like interface to view and edit rosters in real-time.
 * **Smart Solver:**
-    * Enforces daily manpower requirements (AM, PM, 24H, Standby).
-    * **Strict Gap Rule:** No back-to-back duties of any kind. If a user works Day X, they cannot work Day X+1.
-    * Optimizes for fairness (minimizing point variance between staff).
+    * **Strict Gap Rule:** Enforces mandatory rest days. No back-to-back duties of any kind (e.g., cannot do PM on Monday and AM on Tuesday).
+    * **Manpower Constraints:** Enforces daily requirements for AM, PM, 24H, and Standby shifts.
+    * **Fairness Optimization:** Minimizes the variance in "duty points" across all staff.
 * **Flexible Modes:**
     * **24H Mode:** All shifts are 24-hour duties.
     * **Shift Mode:** AM/PM splits.
     * **Hybrid:** Auto-switches based on Weekends/Public Holidays.
-* **Robust Configuration:** Customize points, multipliers, and staff list directly in the app.
+* **Smart Configuration:**
+    * **Dynamic Import:** Automatically detects and adds new staff names when importing balance files.
+    * **GUI Settings:** Adjust staff lists, daily requirements, and point values directly in the app.
 * **Data Integrity:** Imports previous month's balances (Carry Over) to ensure long-term fairness.
 
 ## 📦 Installation
 
-1.  Install Python 3.10 or higher.
-2.  Install dependencies:
+1.  **Prerequisites:** Python 3.10 or higher.
+2.  **Install dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
-3.  Run the application:
+3.  **Run the application:**
     ```bash
     python gui.py
     ```
 
 ## 📖 User Guide
 
-1.  **Setup:** Go to the **Settings** tab.
-    * Enter your **Personnel** list (comma-separated or new lines).
-    * Set your **Daily Requirements** (e.g., 1 AM, 1 PM, 1 Standby).
-    * Adjust **Points Scoring** if necessary.
-    * Click **Save & Reload**.
-2.  **Planner:**
-    * Select Month/Year and click **Load Grid**.
-    * **Manual Overrides:** Click any cell to cycle through `X` (Leave), `AM`, `PM`, `24H`, etc.
-    * **24H Toggle:** Use the checkboxes in the header row (or "Check All 24H") to force specific days into 24H mode.
-    * **Generate:** Click **GENERATE FILL**. The solver will fill empty slots while respecting your manual inputs.
-3.  **Export:** Click **Export to Excel** to save a formatted `.xlsx` file.
+### 1. Initial Setup
+Navigate to the **Settings** tab:
+* **Daily Requirements:** Set how many people you need for each shift type (AM, PM, 24H, Standby).
+* **Points Scoring:** Adjust the weight of each shift and multipliers for Weekends/PH.
+* **Personnel List:** Enter staff names (separated by commas or new lines).
+* Click **Save & Reload** to apply changes.
+
+### 2. Planning a Roster
+Switch to the **Planner** tab:
+1.  Select the **Month** and **Year**.
+2.  Click **Load Grid**.
+3.  **Import Balances (Optional):** Load an Excel file from the previous month to carry over scores. New names found in the file will be auto-added.
+4.  **Manual Constraints:** Click cells to cycle through pre-assigned statuses:
+    * `X` = Leave (Solver will NOT assign duty).
+    * `AM`/`PM`/`24H` = Forced Duty (Solver will keep this).
+5.  **24H Toggle:** Use the checkboxes in the header row (or **Check All 24H**) to force specific days into 24H mode.
+6.  **Generate:** Click **GENERATE FILL**. The AI will fill empty slots while respecting your manual inputs and rules.
+
+### 3. Export
+* Click **Export to Excel** to save a formatted `.xlsx` file containing the roster and points summary.
 
 ## 🏗 Building .exe
 
-To create a standalone executable for Windows:
+To create a standalone executable for Windows (no Python required for end-users):
+
 ```bash
 python build.py
 ```
-The output file will be in the `dist/` folder.
+
+The output file `DutySchedulerPro.exe` will be generated in the `dist/` folder.

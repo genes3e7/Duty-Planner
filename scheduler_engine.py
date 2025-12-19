@@ -143,6 +143,7 @@ class DutySchedulerEngine:
         self.model.AddMinEquality(min_sb, sb_counts)
         self.model.AddMaxEquality(max_sb, sb_counts)
 
+        # Weighted Objective
         self.model.Minimize(
             (max_s - min_s) * C.WEIGHT_POINTS_BALANCE + 
             (max_sb - min_sb) * C.WEIGHT_STANDBY_BALANCE

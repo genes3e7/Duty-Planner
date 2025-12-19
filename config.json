@@ -1,11 +1,10 @@
 {
-    "workplace_name": "My Unit",
     "year": 2026,
     "month": 1,
     "mode": "hybrid",
     "personnel": [
         "A",
-        "B",
+        "Bob",
         "C",
         "D",
         "E",
@@ -30,5 +29,6 @@
             "PM": 1,
             "24H": 1
         }
-    }
+    },
+    "workplace_name": "My Unit"
 }
