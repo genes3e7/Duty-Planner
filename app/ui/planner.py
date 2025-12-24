@@ -10,16 +10,16 @@ import calendar
 import threading
 from tkinter import filedialog, messagebox
 
-import customtkinter as ctk  # type: ignore
+import customtkinter as ctk
 import holidays
 import pandas as pd
 
-import constants as C
-import gui_helpers as GH
-from config_models import AppConfig
-from data_manager import DataManager
-from scheduler_engine import DutySchedulerEngine, SolverRequest
-from ui_components import ShiftGridCell
+import app.ui.helpers as GH
+from app import constants as C
+from app.core.data import DataManager
+from app.core.scheduler import DutySchedulerEngine, SolverRequest
+from app.models.config import AppConfig
+from app.ui.components import ShiftGridCell
 
 
 class PlannerTab(ctk.CTkFrame):

@@ -7,12 +7,12 @@ Responsible for validating user inputs and saving the configuration.
 
 from tkinter import messagebox
 
-import customtkinter as ctk  # type: ignore
+import customtkinter as ctk
 
-import gui_helpers as GH
-from config_models import AppConfig
-from constants import ShiftType
-from data_manager import DataManager
+from app.constants import ShiftType
+from app.core.data import DataManager
+from app.models.config import AppConfig
+from app.ui import helpers as GH
 
 
 class SettingsTab(ctk.CTkFrame):

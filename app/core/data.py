@@ -11,10 +11,10 @@ from typing import Any, Dict, List
 
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side  # type: ignore
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-import constants as C
-from config_models import AppConfig
+from app import constants as C
+from app.models.config import AppConfig
 
 
 class DataManager:

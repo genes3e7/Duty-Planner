@@ -6,7 +6,7 @@ Shared UI construction helpers.
 
 from typing import Any, Callable, Dict, Optional
 
-import customtkinter as ctk  # type: ignore
+import customtkinter as ctk
 
 
 def create_grid_header(

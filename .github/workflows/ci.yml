@@ -1,51 +1,183 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 
-# 1. Permission to write back to the repo
 permissions:
   contents: write
 
 jobs:
-  build:
+  # JOB 1: Detect what actually changed
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
     steps:
     - uses: actions/checkout@v4
+    
+    # Security Fix: Pinned SHA for dorny/paths-filter
+    - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36
+      id: filter
       with:
-        fetch-depth: 0 # Fetch full history for pushing
+        filters: |
+          python:
+            - '**.py'
+            - 'requirements.txt'
+            - 'requirements.in'
+            - 'pyproject.toml'
 
-    - name: Set up Python 3.13
+  # JOB 2: Run Matrix
+  test-matrix:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Restored 3.14 as requested
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+      fail-fast: false
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
-        python-version: "3.13"
+        python-version: ${{ matrix.python-version }}
+        allow-prereleases: true
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        fi
+        pip install pytest
 
-    # 2. RUN BOTH FIX AND FORMAT
-    - name: Ruff Auto-Fix and Format
+    - name: Test with Pytest
+      run: pytest tests/
+
+    - name: Record Success
+      if: success()
+      run: echo "${{ matrix.python-version }}" > python_version_${{ matrix.python-version }}.txt
+
+    - name: Upload Success Artifact
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: passed-version-${{ matrix.python-version }}
+        path: python_version_${{ matrix.python-version }}.txt
+
+  # JOB 3: Finalize (Update Readme, Lint, Commit)
+  finalize-updates:
+    needs: [test-matrix, changes]
+    runs-on: ubuntu-latest
+    if: always() && needs.changes.outputs.python == 'true'
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        pattern: passed-version-*
+        merge-multiple: true
+
+    - name: Determine Supported Range
+      id: versions
       run: |
+        if [ -z "$(ls -A artifacts)" ]; then
+           echo "No versions passed! Failing job."
+           exit 1
+        fi
+        
+        cat artifacts/*.txt > all_versions.txt
+        sort -V all_versions.txt -o sorted_versions.txt
+        
+        MIN_VER=$(head -n 1 sorted_versions.txt)
+        MAX_VER=$(tail -n 1 sorted_versions.txt)
+        
+        echo "Calculated Range: $MIN_VER - $MAX_VER"
+        
+        echo "MIN_VER=$MIN_VER" >> $GITHUB_ENV
+        echo "MAX_VER=$MAX_VER" >> $GITHUB_ENV
+
+    - name: Set up Utility Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+
+    - name: Update README
+      run: python tools/update_readme.py "${{ env.MIN_VER }}" "${{ env.MAX_VER }}"
+
+    - name: Set up Lowest Python (${{ env.MIN_VER }})
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.MIN_VER }}
+        allow-prereleases: true
+
+    - name: Compile requirements.txt
+      run: |
+        python -m pip install --upgrade pip
+        pip install pip-tools
+        if [ -f requirements.in ]; then 
+          pip-compile requirements.in --output-file requirements.txt --resolver=backtracking
+        fi
+
+    - name: Set up Python for Linting
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+
+    - name: Ruff Format & Fix
+      run: |
+        pip install ruff
         ruff check . --fix
         ruff format .
 
-    - name: Test with Pytest
-      run: pytest tests.py
+    - name: Verify Builder (PyInstaller)
+      run: |
+        pip install pyinstaller
+        pip install -r requirements.txt
+        python build.py
 
-    # 3. Commit changes if anything was modified
     - name: Commit and Push changes
-      if: always()
+      env:
+        PR_BRANCH: ${{ github.head_ref || github.ref_name }}
+        MIN_VER: ${{ env.MIN_VER }}
+        MAX_VER: ${{ env.MAX_VER }}
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
         git add .
         
-        # Check if there are staged changes to commit
         if git diff --staged --quiet; then
-          echo "No changes to commit. Skipping push."
+          echo "No changes to commit."
         else
-          git commit -m "style: auto-fix linting and formatting (ruff)"
-          # Explicitly push to the branch associated with this Pull Request
-          git push origin HEAD:${{ github.head_ref }}
+          CHANGES=""
+          
+          if git diff --staged --name-only | grep -q "README.md"; then
+            CHANGES="$CHANGES, versions ($MIN_VER-$MAX_VER)"
+          fi
+          
+          if git diff --staged --name-only | grep -q "requirements.txt"; then
+            CHANGES="$CHANGES, deps"
+          fi
+          
+          if git diff --staged --name-only | grep -q ".py$"; then
+            CHANGES="$CHANGES, formatting"
+          fi
+          
+          CHANGES=$(echo "$CHANGES" | sed 's/^, //')
+          
+          if [ -z "$CHANGES" ]; then
+            CHANGES="misc updates"
+          fi
+          
+          git commit -m "chore: CI auto-update ($CHANGES)"
+          git push origin HEAD:"$PR_BRANCH"
         fi

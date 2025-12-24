@@ -6,9 +6,9 @@ Custom UI Widgets.
 
 from typing import Any, Callable
 
-import customtkinter as ctk  # type: ignore
+import customtkinter as ctk
 
-import constants as C
+from app import constants as C
 
 
 class ShiftGridCell(ctk.CTkButton):
