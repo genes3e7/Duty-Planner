@@ -10,25 +10,26 @@ import customtkinter as ctk  # type: ignore
 
 
 def create_grid_header(
-    parent: Any, 
-    text: str, 
-    row: int, 
-    col: int, 
+    parent: Any,
+    text: str,
+    row: int,
+    col: int,
     bg_color: str = "transparent",
     width: int = 40,
-    font: Optional[tuple] = ("Arial", 10, "bold")
+    font: Optional[tuple] = ("Arial", 10, "bold"),
 ) -> ctk.CTkLabel:
     """Creates a standard grid header label."""
     label = ctk.CTkLabel(parent, text=text, width=width, fg_color=bg_color, font=font)
     label.grid(row=row, column=col, padx=1, sticky="nsew")
     return label
 
+
 def create_config_row(
     parent: Any,
     label: str,
     default_val: Any,
     storage: Dict[str, ctk.CTkEntry],
-    key: str
+    key: str,
 ) -> None:
     """Creates a 'Label: Entry' row and stores reference."""
     frame = ctk.CTkFrame(parent)
@@ -39,6 +40,7 @@ def create_config_row(
     entry.pack(side="right", expand=True, fill="x", padx=5)
     storage[key] = entry
 
+
 def create_button(
     parent: Any,
     text: str,
@@ -46,12 +48,16 @@ def create_button(
     side: str = "right",
     width: int = 100,
     fg_color: Optional[str] = None,
-    hover_color: Optional[str] = None
+    hover_color: Optional[str] = None,
 ) -> ctk.CTkButton:
     """Creates a standard action button."""
     btn = ctk.CTkButton(
-        parent, text=text, width=width, command=command,
-        fg_color=fg_color, hover_color=hover_color
+        parent,
+        text=text,
+        width=width,
+        command=command,
+        fg_color=fg_color,
+        hover_color=hover_color,
     )
     btn.pack(side=side, padx=5)
     return btn

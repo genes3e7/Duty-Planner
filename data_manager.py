@@ -26,7 +26,7 @@ class DataManager:
         if not os.path.exists(filepath):
             return AppConfig.default()
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return AppConfig.from_dict(data)
         except Exception as e:
@@ -38,7 +38,7 @@ class DataManager:
         """Saves AppConfig object to JSON."""
         try:
             data = config.to_dict()
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except IOError as e:
             logging.error(f"Config save failed: {e}")
@@ -55,23 +55,21 @@ class DataManager:
         try:
             df = pd.read_excel(filepath)
             cols = [str(c).lower().strip() for c in df.columns]
-            
-            name_idx = next(
-                (i for i, c in enumerate(cols) if 'name' in c), 
-                None
-            )
+
+            name_idx = next((i for i, c in enumerate(cols) if "name" in c), None)
             # Fix: Broken down to satisfy line length limits
             bal_idx = next(
                 (
-                    i for i, c in enumerate(cols) 
-                    if any(x in c for x in ['carry', 'bal', 'roll'])
-                ), 
-                None
+                    i
+                    for i, c in enumerate(cols)
+                    if any(x in c for x in ["carry", "bal", "roll"])
+                ),
+                None,
             )
-            
+
             if name_idx is None or bal_idx is None:
                 return {}
-            
+
             result = {}
             for _, row in df.iterrows():
                 try:
@@ -87,46 +85,45 @@ class DataManager:
 
     @staticmethod
     def export_schedule(
-        schedule_data: Dict[Any, str], 
-        point_summary: List[Dict], 
-        config: AppConfig, 
-        save_path: str
+        schedule_data: Dict[Any, str],
+        point_summary: List[Dict],
+        config: AppConfig,
+        save_path: str,
     ) -> None:
         """Exports grid and summary to formatted Excel."""
         days = max([k[1] for k in schedule_data.keys()]) if schedule_data else 30
-        
+
         wb = Workbook()
         ws = wb.active
         ws.title = C.EXCEL_SHEET_TITLE
-        
+
         ws.append(
-            C.EXCEL_HEADERS_STATIC + 
-            [d for d in range(1, days+1)] + 
-            C.EXCEL_HEADERS_SUFFIX
+            C.EXCEL_HEADERS_STATIC
+            + [d for d in range(1, days + 1)]
+            + C.EXCEL_HEADERS_SUFFIX
         )
-        
-        pt_map = {str(i['Name']): i for i in point_summary}
-        
+
+        pt_map = {str(i["Name"]): i for i in point_summary}
+
         for name in sorted(config.personnel):
             row = [name]
-            for d in range(1, days+1):
+            for d in range(1, days + 1):
                 row.append(schedule_data.get((name, d), ""))
-            
+
             p = pt_map.get(
-                name, 
-                {'Brought Fwd': 0.0, 'Month Pts': 0.0, 'Carry Over': 0.0}
+                name, {"Brought Fwd": 0.0, "Month Pts": 0.0, "Carry Over": 0.0}
             )
-            row.extend([p['Brought Fwd'], p['Month Pts'], p['Carry Over']])
+            row.extend([p["Brought Fwd"], p["Month Pts"], p["Carry Over"]])
             ws.append(row)
 
         # Styles
         fill_header = PatternFill("solid", fgColor=C.COLOR_HEADER_BG.replace("#", ""))
         fill_x = PatternFill("solid", fgColor=C.COLOR_CONSTRAINT_BG.replace("#", ""))
         border = Border(
-            left=Side(style='thin'), 
-            right=Side(style='thin'), 
-            top=Side(style='thin'), 
-            bottom=Side(style='thin')
+            left=Side(style="thin"),
+            right=Side(style="thin"),
+            top=Side(style="thin"),
+            bottom=Side(style="thin"),
         )
 
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
@@ -138,5 +135,5 @@ class DataManager:
                     cell.fill = fill_header
                 if cell.value == C.ShiftType.LEAVE.value:
                     cell.fill = fill_x
-        
+
         wb.save(save_path)
