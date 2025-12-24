@@ -29,7 +29,7 @@ def build():
             "--onefile",
             "--noconsole",
             f"--add-data={ctk_path}{separator}customtkinter",
-            "--add-data=app:app",
+            f"--add-data=app{separator}app",
             "--hidden-import=babel.numbers",
             "--hidden-import=openpyxl.cell._writer",
             "--clean",
