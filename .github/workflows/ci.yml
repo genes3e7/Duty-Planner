@@ -144,8 +144,9 @@ jobs:
 
     - name: Commit and Push changes
       env:
-        # Define branch variable securely
         PR_BRANCH: ${{ github.head_ref || github.ref_name }}
+        MIN_VER: ${{ env.MIN_VER }}
+        MAX_VER: ${{ env.MAX_VER }}
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -155,7 +156,34 @@ jobs:
         if git diff --staged --quiet; then
           echo "No changes to commit."
         else
-          git commit -m "chore: update supported versions (${{ env.MIN_VER }}-${{ env.MAX_VER }}) and requirements"
-          # Use the secure environment variable
+          # Build a dynamic list of what changed
+          CHANGES=""
+          
+          # Check if README changed (implies version update)
+          if git diff --staged --name-only | grep -q "README.md"; then
+            CHANGES="$CHANGES, versions ($MIN_VER-$MAX_VER)"
+          fi
+          
+          # Check if requirements changed
+          if git diff --staged --name-only | grep -q "requirements.txt"; then
+            CHANGES="$CHANGES, deps"
+          fi
+          
+          # Check if Python files changed (implies linting/formatting)
+          if git diff --staged --name-only | grep -q ".py$"; then
+            CHANGES="$CHANGES, formatting"
+          fi
+          
+          # Clean up the leading comma/space
+          CHANGES=$(echo "$CHANGES" | sed 's/^, //')
+          
+          # Fallback message if something unexpected changed
+          if [ -z "$CHANGES" ]; then
+            CHANGES="misc updates"
+          fi
+          
+          git commit -m "chore: CI auto-update ($CHANGES)"
+          
+          # Use the secure environment variable for the push
           git push origin HEAD:"$PR_BRANCH"
         fi

@@ -1,6 +1,6 @@
-import os
-from unittest.mock import patch
 
+from unittest.mock import patch
+import os
 import build
 
 
