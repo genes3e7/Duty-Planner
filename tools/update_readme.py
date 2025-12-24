@@ -1,18 +1,40 @@
-import os
-import re
 import sys
+import re
+import os
 
+def validate_version(version_str):
+    """
+    Ensures the version string is present and follows a pattern like X.Y or X.Y.Z.
+    """
+    if not version_str:
+        print("Error: Version argument is empty.")
+        sys.exit(1)
+    
+    # Matches "3.10", "3.10.1", etc.
+    pattern = r"^\d+\.\d+(?:\.\d+)?$"
+    if not re.match(pattern, version_str):
+        print(f"Error: Invalid version format '{version_str}'. Expected format like '3.10' or '3.10.1'.")
+        sys.exit(1)
 
 def update_readme(min_version, max_version):
+    # 1. Validate Inputs
+    validate_version(min_version)
+    validate_version(max_version)
+
     readme_path = "README.md"
     if not os.path.exists(readme_path):
         print(f"Error: {readme_path} not found.")
         sys.exit(1)
 
-    with open(readme_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    # 2. Safe File Reading
+    try:
+        with open(readme_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError as e:
+        print(f"Error reading {readme_path}: {e}")
+        sys.exit(1)
 
-    # Format: "3.10 - 3.13" or just "3.10" if they are the same
+    # Determine version string format
     if min_version == max_version:
         version_string = min_version
     else:
@@ -21,20 +43,26 @@ def update_readme(min_version, max_version):
     print(f"Updating README to support Python: {version_string}")
 
     # Regex to find: "**Prerequisites:** Python 3.10 or higher."
-    # We capture the prefix to preserve bolding/formatting.
     pattern = r"(\*\*Prerequisites:\*\* Python ).*"
 
     if not re.search(pattern, content):
-        print("Critical: Could not find 'Prerequisites: Python ...' line in README.")
-        sys.exit(1)
+        # Fallback search if the line has changed slightly
+        if not re.search(r"(Python )[\d\.]+", content):
+            print("Critical: Could not find Python version definition in README.")
+            sys.exit(1)
 
-    # Replace with: "**Prerequisites:** Python 3.10 - 3.13"
+    # Use lambda to avoid backslash escaping issues in replacement string
     new_content = re.sub(pattern, lambda m: f"{m.group(1)}{version_string}", content)
 
+    # 3. Safe File Writing
     if new_content != content:
-        with open(readme_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        print("README.md updated successfully.")
+        try:
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            print("README.md updated successfully.")
+        except OSError as e:
+            print(f"Error writing to {readme_path}: {e}")
+            sys.exit(1)
     else:
         print("README.md already up to date.")
 
