@@ -7,12 +7,15 @@ Wraps Google OR-Tools to solve the rostering schedule.
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
+
 import holidays
 import pandas as pd
-from ortools.sat.python import cp_model # type: ignore
+from ortools.sat.python import cp_model  # type: ignore
+
 import constants as C
 from config_models import AppConfig
+
 
 @dataclass
 class SolverRequest:
@@ -29,7 +32,12 @@ class SolverRequest:
 class DutySchedulerEngine:
     """The Engine class wrapping the CP-SAT solver."""
 
-    def __init__(self, config: AppConfig, prev_balance: Dict[str, float], request: SolverRequest) -> None:
+    def __init__(
+        self, 
+        config: AppConfig, 
+        prev_balance: Dict[str, float], 
+        request: SolverRequest
+    ) -> None:
         """
         Args:
             config: Application rules/constraints.
@@ -42,8 +50,10 @@ class DutySchedulerEngine:
         
         # Calculate days in month
         try:
-            self.num_days = pd.Period(f'{self.req.year}-{self.req.month}').days_in_month
-        except: 
+            self.num_days = pd.Period(
+                f'{self.req.year}-{self.req.month}'
+            ).days_in_month
+        except Exception: 
             self.num_days = 30
             
         self.sg_holidays = holidays.SG(years=self.req.year)
@@ -55,7 +65,7 @@ class DutySchedulerEngine:
         try:
             dt = pd.Timestamp(year=self.req.year, month=self.req.month, day=day)
             return (dt in self.sg_holidays, dt.dayofweek >= 5)
-        except: 
+        except Exception: 
             return (False, False)
 
     def build_model(self) -> None:
@@ -70,9 +80,12 @@ class DutySchedulerEngine:
 
         # 2. Fixed Assignments
         for (p, d), val in self.req.fixed_assignments.items():
-            if d in self.req.inactive_days: continue
+            if d in self.req.inactive_days:
+                continue
             if val == C.ShiftType.LEAVE:
-                self.model.Add(sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) == 0)
+                self.model.Add(
+                    sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) == 0
+                )
             elif val in C.ACTIVE_DUTIES:
                 self.model.Add(self.shifts[(p, d, val)] == 1)
 
@@ -83,32 +96,58 @@ class DutySchedulerEngine:
             if d in self.req.inactive_days:
                 # Force zero on inactive days
                 for p in self.req.staff_ids:
-                    self.model.Add(sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) == 0)
+                    self.model.Add(
+                        sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) == 0
+                    )
                 continue
 
             mode = self.req.day_modes.get(d, C.ScheduleMode.SHIFT)
             
             if mode == C.ScheduleMode.FULL_24H:
                 target_24 = c_reqs.get(C.ShiftType.FULL_24H.value, 1)
-                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.FULL_24H)] for p in self.req.staff_ids) == target_24)
+                self.model.Add(
+                    sum(self.shifts[(p, d, C.ShiftType.FULL_24H)] 
+                        for p in self.req.staff_ids) == target_24
+                )
                 # Ensure no AM/PM
-                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.AM)] for p in self.req.staff_ids) == 0)
-                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.PM)] for p in self.req.staff_ids) == 0)
+                self.model.Add(
+                    sum(self.shifts[(p, d, C.ShiftType.AM)] 
+                        for p in self.req.staff_ids) == 0
+                )
+                self.model.Add(
+                    sum(self.shifts[(p, d, C.ShiftType.PM)] 
+                        for p in self.req.staff_ids) == 0
+                )
             else:
                 t_am = c_reqs.get(C.ShiftType.AM.value, 1)
                 t_pm = c_reqs.get(C.ShiftType.PM.value, 1)
-                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.AM)] for p in self.req.staff_ids) == t_am)
-                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.PM)] for p in self.req.staff_ids) == t_pm)
-                self.model.Add(sum(self.shifts[(p, d, C.ShiftType.FULL_24H)] for p in self.req.staff_ids) == 0)
+                self.model.Add(
+                    sum(self.shifts[(p, d, C.ShiftType.AM)] 
+                        for p in self.req.staff_ids) == t_am
+                )
+                self.model.Add(
+                    sum(self.shifts[(p, d, C.ShiftType.PM)] 
+                        for p in self.req.staff_ids) == t_pm
+                )
+                self.model.Add(
+                    sum(self.shifts[(p, d, C.ShiftType.FULL_24H)] 
+                        for p in self.req.staff_ids) == 0
+                )
 
             # Standby always needed
-            self.model.Add(sum(self.shifts[(p, d, C.ShiftType.STANDBY)] for p in self.req.staff_ids) == self.cfg.constraints.standby_per_day)
+            self.model.Add(
+                sum(self.shifts[(p, d, C.ShiftType.STANDBY)] 
+                    for p in self.req.staff_ids) == 
+                self.cfg.constraints.standby_per_day
+            )
 
         # 4. Strict Gap Rule
         for p in self.req.staff_ids:
             # Exclusivity
             for d in range(1, self.num_days + 1):
-                self.model.Add(sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) <= 1)
+                self.model.Add(
+                    sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES) <= 1
+                )
             # No consecutive days
             for d in range(1, self.num_days):
                 work_today = sum(self.shifts[(p, d, s)] for s in C.ACTIVE_DUTIES)
@@ -125,12 +164,15 @@ class DutySchedulerEngine:
             start_bal = int(self.prev.get(p, 0.0) * SCALE)
             
             for d in range(1, self.num_days + 1):
-                if d in self.req.inactive_days: continue
+                if d in self.req.inactive_days:
+                    continue
                 is_ph, is_wknd = self._is_ph_or_weekend(d)
                 
                 mult = 1.0
-                if is_ph: mult = self.cfg.points.ph_multiplier
-                elif is_wknd: mult = self.cfg.points.weekend_multiplier
+                if is_ph:
+                    mult = self.cfg.points.ph_multiplier
+                elif is_wknd:
+                    mult = self.cfg.points.weekend_multiplier
                 
                 for s in C.ACTIVE_DUTIES:
                     base = self.cfg.points.get_by_type(s)

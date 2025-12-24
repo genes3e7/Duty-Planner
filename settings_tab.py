@@ -4,12 +4,15 @@ settings_tab.py
 Encapsulates the UI and logic for the 'Settings' tab.
 Responsible for validating user inputs and saving the configuration.
 """
-import customtkinter as ctk  # type: ignore
 from tkinter import messagebox
+
+import customtkinter as ctk  # type: ignore
+
 import gui_helpers as GH
-from data_manager import DataManager
 from config_models import AppConfig
 from constants import ShiftType
+from data_manager import DataManager
+
 
 class SettingsTab(ctk.CTkFrame):
     """
@@ -38,18 +41,43 @@ class SettingsTab(ctk.CTkFrame):
         
         # Manpower Section
         ctk.CTkLabel(sc, text="Manpower", font=("Arial",16,"bold")).pack(pady=10)
-        GH.create_config_row(sc, "AM:", self.config.constraints.personnel_needed_per_shift.get(ShiftType.AM.value, 1), self.reqs, 'AM')
-        GH.create_config_row(sc, "PM:", self.config.constraints.personnel_needed_per_shift.get(ShiftType.PM.value, 1), self.reqs, 'PM')
-        GH.create_config_row(sc, "24H:", self.config.constraints.personnel_needed_per_shift.get(ShiftType.FULL_24H.value, 1), self.reqs, '24H')
-        GH.create_config_row(sc, "Standby:", self.config.constraints.standby_per_day, self.reqs, 'SB')
+        GH.create_config_row(
+            sc, "AM:", 
+            self.config.constraints.personnel_needed_per_shift.get(ShiftType.AM.value, 1), 
+            self.reqs, 'AM'
+        )
+        GH.create_config_row(
+            sc, "PM:", 
+            self.config.constraints.personnel_needed_per_shift.get(ShiftType.PM.value, 1), 
+            self.reqs, 'PM'
+        )
+        GH.create_config_row(
+            sc, "24H:", 
+            self.config.constraints.personnel_needed_per_shift.get(ShiftType.FULL_24H.value, 1), 
+            self.reqs, '24H'
+        )
+        GH.create_config_row(
+            sc, "Standby:", 
+            self.config.constraints.standby_per_day, self.reqs, 'SB'
+        )
         
         # Points Section
         ctk.CTkLabel(sc, text="Points", font=("Arial",16,"bold")).pack(pady=10)
-        GH.create_config_row(sc, "AM:", self.config.points.AM, self.pts, 'AM')
-        GH.create_config_row(sc, "PM:", self.config.points.PM, self.pts, 'PM')
-        GH.create_config_row(sc, "24H:", self.config.points.FULL_24H, self.pts, '24H')
-        GH.create_config_row(sc, "PH Mul:", self.config.points.ph_multiplier, self.pts, 'PH')
-        GH.create_config_row(sc, "Wknd Mul:", self.config.points.weekend_multiplier, self.pts, 'WK')
+        GH.create_config_row(
+            sc, "AM:", self.config.points.AM, self.pts, 'AM'
+        )
+        GH.create_config_row(
+            sc, "PM:", self.config.points.PM, self.pts, 'PM'
+        )
+        GH.create_config_row(
+            sc, "24H:", self.config.points.FULL_24H, self.pts, '24H'
+        )
+        GH.create_config_row(
+            sc, "PH Mul:", self.config.points.ph_multiplier, self.pts, 'PH'
+        )
+        GH.create_config_row(
+            sc, "Wknd Mul:", self.config.points.weekend_multiplier, self.pts, 'WK'
+        )
         
         # Personnel Section
         ctk.CTkLabel(sc, text="Personnel", font=("Arial",16,"bold")).pack(pady=10)
@@ -86,7 +114,9 @@ class SettingsTab(ctk.CTkFrame):
             
             # Personnel
             raw = self.txt_ppl.get("0.0", "end").replace("\n", ",")
-            self.config.personnel = sorted(list(set([x.strip() for x in raw.split(",") if x.strip()])))
+            self.config.personnel = sorted(list(set(
+                [x.strip() for x in raw.split(",") if x.strip()]
+            )))
             
             DataManager.save_config(self.config)
             self.on_save()

@@ -4,9 +4,11 @@ config_models.py
 Defines Data Classes for App Configuration.
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Any
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List
+
 from constants import ShiftType
+
 
 @dataclass
 class ConstraintsConfig:
@@ -29,10 +31,14 @@ class PointsConfig:
     ph_multiplier: float = 2.0
 
     def get_by_type(self, shift_type: str) -> float:
-        if shift_type == ShiftType.AM: return self.AM
-        if shift_type == ShiftType.PM: return self.PM
-        if shift_type == ShiftType.FULL_24H: return self.FULL_24H
-        if shift_type == ShiftType.STANDBY: return self.STANDBY
+        if shift_type == ShiftType.AM:
+            return self.AM
+        if shift_type == ShiftType.PM:
+            return self.PM
+        if shift_type == ShiftType.FULL_24H:
+            return self.FULL_24H
+        if shift_type == ShiftType.STANDBY:
+            return self.STANDBY
         return 0.0
 
 @dataclass

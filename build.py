@@ -2,14 +2,17 @@
 build.py
 Script to freeze the application into a standalone executable.
 """
-import PyInstaller.__main__
-import customtkinter
 import os
 import shutil
 
+import customtkinter
+import PyInstaller.__main__
+
 # Clean previous builds
-if os.path.exists('dist'): shutil.rmtree('dist')
-if os.path.exists('build'): shutil.rmtree('build')
+if os.path.exists('dist'):
+    shutil.rmtree('dist')
+if os.path.exists('build'):
+    shutil.rmtree('build')
 
 ctk_path = os.path.dirname(customtkinter.__file__)
 

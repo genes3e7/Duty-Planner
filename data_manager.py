@@ -5,14 +5,17 @@ Handles File I/O operations (JSON Config, Excel Import/Export).
 """
 
 import json
-import os
 import logging
-from typing import Dict, List, Any
+import os
+from typing import Any, Dict, List
+
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side # type: ignore
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side  # type: ignore
+
 import constants as C
 from config_models import AppConfig
+
 
 class DataManager:
     """Static Utility Class for Data persistence."""
@@ -47,27 +50,44 @@ class DataManager:
         Imports balances from Excel.
         Uses fuzzy matching for column headers.
         """
-        if not filepath or not os.path.exists(filepath): return {}
+        if not filepath or not os.path.exists(filepath):
+            return {}
         try:
             df = pd.read_excel(filepath)
             cols = [str(c).lower().strip() for c in df.columns]
-            name_idx = next((i for i, c in enumerate(cols) if 'name' in c), None)
-            bal_idx = next((i for i, c in enumerate(cols) if any(x in c for x in ['carry', 'bal', 'roll'])), None)
             
-            if name_idx is None or bal_idx is None: return {}
+            name_idx = next(
+                (i for i, c in enumerate(cols) if 'name' in c), 
+                None
+            )
+            bal_idx = next(
+                (i for i, c in enumerate(cols) if any(x in c for x in ['carry', 'bal', 'roll'])), 
+                None
+            )
+            
+            if name_idx is None or bal_idx is None:
+                return {}
             
             result = {}
             for _, row in df.iterrows():
                 try:
                     name = str(row[df.columns[name_idx]]).strip()
                     val = float(row[df.columns[bal_idx]])
-                    if name: result[name] = val
-                except: continue
+                    if name:
+                        result[name] = val
+                except Exception:
+                    continue
             return result
-        except Exception: return {}
+        except Exception:
+            return {}
 
     @staticmethod
-    def export_schedule(schedule_data: Dict[Any, str], point_summary: List[Dict], config: AppConfig, save_path: str) -> None:
+    def export_schedule(
+        schedule_data: Dict[Any, str], 
+        point_summary: List[Dict], 
+        config: AppConfig, 
+        save_path: str
+    ) -> None:
         """Exports grid and summary to formatted Excel."""
         days = max([k[1] for k in schedule_data.keys()]) if schedule_data else 30
         
@@ -75,7 +95,11 @@ class DataManager:
         ws = wb.active
         ws.title = C.EXCEL_SHEET_TITLE
         
-        ws.append(C.EXCEL_HEADERS_STATIC + [d for d in range(1, days+1)] + C.EXCEL_HEADERS_SUFFIX)
+        ws.append(
+            C.EXCEL_HEADERS_STATIC + 
+            [d for d in range(1, days+1)] + 
+            C.EXCEL_HEADERS_SUFFIX
+        )
         
         pt_map = {str(i['Name']): i for i in point_summary}
         
@@ -84,14 +108,22 @@ class DataManager:
             for d in range(1, days+1):
                 row.append(schedule_data.get((name, d), ""))
             
-            p = pt_map.get(name, {'Brought Fwd': 0.0, 'Month Pts': 0.0, 'Carry Over': 0.0})
+            p = pt_map.get(
+                name, 
+                {'Brought Fwd': 0.0, 'Month Pts': 0.0, 'Carry Over': 0.0}
+            )
             row.extend([p['Brought Fwd'], p['Month Pts'], p['Carry Over']])
             ws.append(row)
 
         # Styles
-        fill_header = PatternFill("solid", fgColor=C.COLOR_HEADER_BG.replace("#",""))
-        fill_x = PatternFill("solid", fgColor=C.COLOR_CONSTRAINT_BG.replace("#",""))
-        border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        fill_header = PatternFill("solid", fgColor=C.COLOR_HEADER_BG.replace("#", ""))
+        fill_x = PatternFill("solid", fgColor=C.COLOR_CONSTRAINT_BG.replace("#", ""))
+        border = Border(
+            left=Side(style='thin'), 
+            right=Side(style='thin'), 
+            top=Side(style='thin'), 
+            bottom=Side(style='thin')
+        )
 
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
             for cell in row:

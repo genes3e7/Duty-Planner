@@ -28,7 +28,12 @@ class ScheduleMode(str, Enum):
     SHIFT = "Shift"
     FULL_24H = "24H"
 
-ACTIVE_DUTIES: List[str] = [ShiftType.AM, ShiftType.PM, ShiftType.FULL_24H, ShiftType.STANDBY]
+ACTIVE_DUTIES: List[str] = [
+    ShiftType.AM, 
+    ShiftType.PM, 
+    ShiftType.FULL_24H, 
+    ShiftType.STANDBY
+]
 
 COLOR_HEADER_BG: str = "#EEEEEE"
 COLOR_PH_BG: str = "#FFEBEE"

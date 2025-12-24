@@ -7,7 +7,9 @@ Writes logs to both disk (app.log) and console.
 
 import logging
 import sys
+
 import constants as C
+
 
 def setup_logger() -> None:
     """

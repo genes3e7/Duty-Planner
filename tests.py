@@ -1,54 +1,80 @@
 """
 tests.py
 
-Unit tests for v8.0 Architecture.
+Unit tests for v3.0.0 Architecture using pytest.
 """
-import unittest
+import pytest
+
 from config_models import AppConfig
-from scheduler_engine import DutySchedulerEngine, SolverRequest
 from constants import ShiftType
+from scheduler_engine import DutySchedulerEngine, SolverRequest
 
-class TestEngine(unittest.TestCase):
-    def setUp(self):
-        self.cfg = AppConfig.default()
-        self.cfg.personnel = ['A','B','C','D','E','F']
-        self.prev = {p:0.0 for p in self.cfg.personnel}
-        # Default Request
-        self.req = SolverRequest(
-            staff_ids=self.cfg.personnel,
-            year=2025, month=1,
-            fixed_assignments={},
-            day_modes={}, inactive_days=[]
-        )
 
-    def test_solve_basic(self):
-        """Test basic solve capability."""
-        eng = DutySchedulerEngine(self.cfg, self.prev, self.req)
-        eng.build_model()
-        res = eng.solve()
-        self.assertIsNotNone(res)
+@pytest.fixture
+def scheduler_data():
+    """
+    Fixture that provides a fresh setup (Config, Previous Balance, SolverRequest)
+    for every single test function. Replaces the old 'setUp' method.
+    """
+    cfg = AppConfig.default()
+    # Use a smaller subset of personnel for faster testing
+    cfg.personnel = ['A', 'B', 'C', 'D', 'E', 'F']
+    prev = {p: 0.0 for p in cfg.personnel}
+    
+    # Default Solver Request
+    req = SolverRequest(
+        staff_ids=cfg.personnel,
+        year=2025, month=1,
+        fixed_assignments={},
+        day_modes={}, 
+        inactive_days=[]
+    )
+    return cfg, prev, req
 
-    def test_inactive_days(self):
-        """Test that inactive days get no assignments."""
-        self.req.inactive_days = [1, 2]
-        eng = DutySchedulerEngine(self.cfg, self.prev, self.req)
-        eng.build_model()
-        sched, _ = eng.solve()
-        # Verify no keys exist for day 1 or 2
-        for (p, d) in sched.keys():
-            self.assertNotIn(d, [1, 2])
+def test_solve_basic(scheduler_data):
+    """Test basic solve capability to ensure the engine runs."""
+    cfg, prev, req = scheduler_data
+    eng = DutySchedulerEngine(cfg, prev, req)
+    eng.build_model()
+    res = eng.solve()
+    
+    # Assert a solution was found
+    assert res is not None
 
-    def test_24h_mode(self):
-        """Test that 24H mode forces only 24H shifts."""
-        self.req.day_modes = {1: "24H"}
-        eng = DutySchedulerEngine(self.cfg, self.prev, self.req)
-        eng.build_model()
-        sched, _ = eng.solve()
-        
-        # Check day 1
-        day1 = [v for (k,v) in sched.items() if k[1] == 1]
-        for s in day1:
-            self.assertIn(s, [ShiftType.FULL_24H, ShiftType.STANDBY])
+def test_inactive_days(scheduler_data):
+    """Test that days marked as 'inactive' receive ZERO assignments."""
+    cfg, prev, req = scheduler_data
+    req.inactive_days = [1, 2] # Disable Day 1 and Day 2
+    
+    eng = DutySchedulerEngine(cfg, prev, req)
+    eng.build_model()
+    res = eng.solve()
+    
+    assert res is not None
+    sched, _ = res
+    
+    # Iterate through the resulting schedule keys (person, day)
+    # Ensure no assignment exists for days 1 or 2
+    for (p, d) in sched.keys():
+        assert d not in [1, 2]
 
-if __name__ == '__main__':
-    unittest.main()
+def test_24h_mode(scheduler_data):
+    """Test that days set to '24H' mode only assign 24H or Standby shifts."""
+    cfg, prev, req = scheduler_data
+    req.day_modes = {1: "24H"} # Force Day 1 to 24H mode
+    
+    eng = DutySchedulerEngine(cfg, prev, req)
+    eng.build_model()
+    res = eng.solve()
+    
+    assert res is not None
+    sched, _ = res
+    
+    # Extract all shifts assigned on Day 1
+    day1_shifts = [v for (k, v) in sched.items() if k[1] == 1]
+    
+    # Valid types are ONLY 24H or STANDBY (no AM/PM allowed)
+    valid_types = [ShiftType.FULL_24H, ShiftType.STANDBY]
+    
+    for s in day1_shifts:
+        assert s in valid_types

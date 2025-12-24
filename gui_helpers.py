@@ -4,8 +4,10 @@ gui_helpers.py
 Shared UI construction helpers.
 """
 
-from typing import Any, Dict, Callable, Optional
+from typing import Any, Callable, Dict, Optional
+
 import customtkinter as ctk  # type: ignore
+
 
 def create_grid_header(
     parent: Any, 

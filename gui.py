@@ -5,15 +5,15 @@ Main Application Entry Point for Duty Scheduler Pro v8.0.
 Acts as the Controller, coordinating the Planner and Settings tabs.
 """
 
-import sys
 import customtkinter as ctk  # type: ignore
+
+import constants as C
+import logger
 
 # Internal Modules
 from data_manager import DataManager
 from planner_tab import PlannerTab
 from settings_tab import SettingsTab
-import constants as C
-import logger
 
 # Setup Logging and Theme
 logger.setup_logger()
@@ -79,7 +79,8 @@ class App(ctk.CTk):
 
     def on_data_change(self) -> None:
         """
-        Callback triggered when Data is changed in Planner (e.g. Import overwrites personnel).
+        Callback triggered when Data is changed in Planner.
+        (e.g. Import overwrites personnel).
         Syncs the Settings UI.
         """
         self.sett.config = self.config

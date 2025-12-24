@@ -1,0 +1,9 @@
+# pyproject.toml
+[tool.ruff]
+# Target Python 3.13 specifically
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+# E = Error, F = Pyflakes, I = Import Sorting
+select = ["E", "F", "I"]
