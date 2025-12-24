@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    # Trigger on all pushes, filter inside jobs
   pull_request:
-    # Trigger on all PRs, filter inside jobs
 
 permissions:
   contents: write
@@ -17,7 +15,9 @@ jobs:
       python: ${{ steps.filter.outputs.python }}
     steps:
     - uses: actions/checkout@v4
-    - uses: dorny/paths-filter@v3
+    
+    # Security Fix: Pinned SHA for dorny/paths-filter
+    - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36
       id: filter
       with:
         filters: |
@@ -26,16 +26,15 @@ jobs:
             - 'requirements.txt'
             - 'requirements.in'
             - 'pyproject.toml'
-            # Note: .github/workflows/ci.yml is deliberately EXCLUDED from this list.
-            # Changes to CI config will NOT trigger the heavy test matrix.
 
-  # JOB 2: Run Matrix (Only if Python files changed)
+  # JOB 2: Run Matrix
   test-matrix:
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # Restored 3.14 as requested
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
       fail-fast: false
 
@@ -71,12 +70,9 @@ jobs:
         path: python_version_${{ matrix.python-version }}.txt
 
   # JOB 3: Finalize (Update Readme, Lint, Commit)
-  # Runs only if matrix ran (and maybe failed), OR if we forced it.
-  # Here we skip it if 'python' files didn't change, because there's nothing to update/lint.
   finalize-updates:
     needs: [test-matrix, changes]
     runs-on: ubuntu-latest
-    # Run only if python files changed (matrix ran). 'always()' is needed to run even if matrix failed (to catch partial successes).
     if: always() && needs.changes.outputs.python == 'true'
     steps:
     - uses: actions/checkout@v4
@@ -162,28 +158,22 @@ jobs:
         if git diff --staged --quiet; then
           echo "No changes to commit."
         else
-          # Build a dynamic list of what changed
           CHANGES=""
           
-          # Check if README changed (implies version update)
           if git diff --staged --name-only | grep -q "README.md"; then
             CHANGES="$CHANGES, versions ($MIN_VER-$MAX_VER)"
           fi
           
-          # Check if requirements changed
           if git diff --staged --name-only | grep -q "requirements.txt"; then
             CHANGES="$CHANGES, deps"
           fi
           
-          # Check if Python files changed (implies linting/formatting)
           if git diff --staged --name-only | grep -q ".py$"; then
             CHANGES="$CHANGES, formatting"
           fi
           
-          # Clean up the leading comma/space
           CHANGES=$(echo "$CHANGES" | sed 's/^, //')
           
-          # Fallback message
           if [ -z "$CHANGES" ]; then
             CHANGES="misc updates"
           fi
