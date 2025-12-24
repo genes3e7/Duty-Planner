@@ -344,8 +344,10 @@ class PlannerTab(ctk.CTkFrame):
             eng.build_model()
             res = eng.solve()
             self.after(0, self._success, res)
-        except Exception:
-            self.after(0, lambda: messagebox.showerror("Solver Error", str(e)))
+        except Exception as e:
+            # Fix: Assign to variable first to resolve scope/linting ambiguity
+            err_msg = str(e)
+            self.after(0, lambda: messagebox.showerror("Solver Error", err_msg))
 
     def _success(self, res):
         """Callback on solver success."""

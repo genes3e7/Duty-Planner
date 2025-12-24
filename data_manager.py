@@ -60,8 +60,12 @@ class DataManager:
                 (i for i, c in enumerate(cols) if 'name' in c), 
                 None
             )
+            # Fix: Broken down to satisfy line length limits
             bal_idx = next(
-                (i for i, c in enumerate(cols) if any(x in c for x in ['carry', 'bal', 'roll'])), 
+                (
+                    i for i, c in enumerate(cols) 
+                    if any(x in c for x in ['carry', 'bal', 'roll'])
+                ), 
                 None
             )
             

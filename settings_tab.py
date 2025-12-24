@@ -41,21 +41,23 @@ class SettingsTab(ctk.CTkFrame):
         
         # Manpower Section
         ctk.CTkLabel(sc, text="Manpower", font=("Arial",16,"bold")).pack(pady=10)
-        GH.create_config_row(
-            sc, "AM:", 
-            self.config.constraints.personnel_needed_per_shift.get(ShiftType.AM.value, 1), 
-            self.reqs, 'AM'
+        
+        # Fix: Extract long config lookups to variables to pass line length checks
+        req_am = self.config.constraints.personnel_needed_per_shift.get(
+            ShiftType.AM.value, 1
         )
-        GH.create_config_row(
-            sc, "PM:", 
-            self.config.constraints.personnel_needed_per_shift.get(ShiftType.PM.value, 1), 
-            self.reqs, 'PM'
+        GH.create_config_row(sc, "AM:", req_am, self.reqs, 'AM')
+        
+        req_pm = self.config.constraints.personnel_needed_per_shift.get(
+            ShiftType.PM.value, 1
         )
-        GH.create_config_row(
-            sc, "24H:", 
-            self.config.constraints.personnel_needed_per_shift.get(ShiftType.FULL_24H.value, 1), 
-            self.reqs, '24H'
+        GH.create_config_row(sc, "PM:", req_pm, self.reqs, 'PM')
+        
+        req_24h = self.config.constraints.personnel_needed_per_shift.get(
+            ShiftType.FULL_24H.value, 1
         )
+        GH.create_config_row(sc, "24H:", req_24h, self.reqs, '24H')
+        
         GH.create_config_row(
             sc, "Standby:", 
             self.config.constraints.standby_per_day, self.reqs, 'SB'
