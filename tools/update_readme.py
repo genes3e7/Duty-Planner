@@ -1,6 +1,7 @@
-import sys
-import re
 import os
+import re
+import sys
+
 
 def validate_version(version_str):
     """
@@ -9,12 +10,16 @@ def validate_version(version_str):
     if not version_str:
         print("Error: Version argument is empty.")
         sys.exit(1)
-    
+
     # Matches "3.10", "3.10.1", etc.
     pattern = r"^\d+\.\d+(?:\.\d+)?$"
     if not re.match(pattern, version_str):
-        print(f"Error: Invalid version format '{version_str}'. Expected format like '3.10' or '3.10.1'.")
+        print(
+            f"Error: Invalid version format '{version_str}'. "
+            "Expected format like '3.10' or '3.10.1'."
+        )
         sys.exit(1)
+
 
 def update_readme(min_version, max_version):
     # 1. Validate Inputs
@@ -39,7 +44,7 @@ def update_readme(min_version, max_version):
         version_string = min_version
     else:
         version_string = f"{min_version} - {max_version}"
-        
+
     print(f"Updating README to support Python: {version_string}")
 
     # Regex to find: "**Prerequisites:** Python 3.10 or higher."
@@ -65,6 +70,7 @@ def update_readme(min_version, max_version):
             sys.exit(1)
     else:
         print("README.md already up to date.")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
