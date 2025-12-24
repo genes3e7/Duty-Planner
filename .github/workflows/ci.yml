@@ -1,6 +1,22 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    # Only run on push if these specific files are changed
+    paths:
+      - "**.py" # All python files in any folder
+      - "requirements.txt" # Dependency changes
+      - "requirements.in" # Dependency source changes
+      - "pyproject.toml" # Project config changes
+      - ".github/workflows/ci.yml" # Workflow changes (self-test)
+  pull_request:
+    # Same filter for PRs
+    paths:
+      - "**.py"
+      - "requirements.txt"
+      - "requirements.in"
+      - "pyproject.toml"
+      - ".github/workflows/ci.yml"
 
 permissions:
   contents: write
