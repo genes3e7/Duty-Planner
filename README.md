@@ -20,7 +20,7 @@ A professional automated rostering tool designed for 24/7 operations. It uses co
 
 ## 📦 Installation
 
-1.  **Prerequisites:** Python 3.10 or higher.
+1.  **Prerequisites:** Python 3.11 - 3.13
 2.  **Install dependencies:**
     ```bash
     pip install -r requirements.txt
