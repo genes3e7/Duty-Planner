@@ -1,5 +1,5 @@
-from unittest.mock import patch
-
+import os
+from unittest.mock import MagicMock, patch
 import build
 
 
@@ -27,6 +27,8 @@ def test_build_execution(mock_exists, mock_rmtree, mock_pyinstaller):
     args = mock_pyinstaller.call_args[0][0]
     assert "run.py" in args
     assert "--name=DutySchedulerPro" in args
-    # Verify app package inclusion
-    assert "--add-data=app:app" in args
+
+    # Verify app package inclusion using the correct OS separator
+    expected_arg = f"--add-data=app{os.pathsep}app"
+    assert expected_arg in args
     assert "--clean" in args
