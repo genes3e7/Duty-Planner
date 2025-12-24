@@ -3,6 +3,7 @@ constants.py
 
 Application Constants.
 """
+
 from enum import Enum
 from typing import List
 
@@ -16,6 +17,7 @@ EXCEL_SHEET_TITLE: str = "Duty Plan"
 EXCEL_HEADERS_STATIC: List[str] = ["Name"]
 EXCEL_HEADERS_SUFFIX: List[str] = ["Brought Fwd", "Month Pts", "Carry Over"]
 
+
 class ShiftType(str, Enum):
     AM = "AM"
     PM = "PM"
@@ -24,15 +26,17 @@ class ShiftType(str, Enum):
     LEAVE = "X"
     EMPTY = ""
 
+
 class ScheduleMode(str, Enum):
     SHIFT = "Shift"
     FULL_24H = "24H"
 
+
 ACTIVE_DUTIES: List[str] = [
-    ShiftType.AM, 
-    ShiftType.PM, 
-    ShiftType.FULL_24H, 
-    ShiftType.STANDBY
+    ShiftType.AM,
+    ShiftType.PM,
+    ShiftType.FULL_24H,
+    ShiftType.STANDBY,
 ]
 
 COLOR_HEADER_BG: str = "#EEEEEE"

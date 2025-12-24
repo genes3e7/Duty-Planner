@@ -19,10 +19,11 @@ from settings_tab import SettingsTab
 logger.setup_logger()
 ctk.set_appearance_mode(C.THEME_MODE)
 
+
 class App(ctk.CTk):
     """
     Main Window Application Class.
-    
+
     Manages the application lifecycle, holds shared configuration state,
     and instantiates the tab controllers.
     """
@@ -30,35 +31,31 @@ class App(ctk.CTk):
     def __init__(self) -> None:
         """Initializes the main window and constructs the tab layout."""
         super().__init__()
-        
+
         # Window Configuration
         self.title(C.APP_TITLE)
         self.geometry(C.APP_GEOMETRY)
         # Load Config once to share across tabs
         self.config = DataManager.load_config()
-        
+
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
-        
+
         self.tabview = ctk.CTkTabview(self)
         self.tabview.grid(row=0, column=0, sticky="nsew", padx=10)
-        
+
         # Instantiate Planner Tab
         # Pass callback to notify App if Planner changes data (e.g. imports)
         self.plan = PlannerTab(
-            self.tabview.add("Planner"), 
-            self.config, 
-            on_update_callback=self.on_data_change
+            self.tabview.add("Planner"),
+            self.config,
+            on_update_callback=self.on_data_change,
         )
         self.plan.pack(fill="both", expand=True)
-        
+
         # Instantiate Settings Tab
         # Pass callback to notify App if Settings change config
-        self.sett = SettingsTab(
-            self.tabview.add("Settings"), 
-            self.config, 
-            self.on_save
-        )
+        self.sett = SettingsTab(self.tabview.add("Settings"), self.config, self.on_save)
         self.sett.pack(fill="both", expand=True)
 
     def on_save(self) -> None:
@@ -69,11 +66,11 @@ class App(ctk.CTk):
         self.config = DataManager.load_config()
         self.plan.config = self.config
         self.sett.config = self.config
-        
+
         # Force refresh of planner grid
         self.plan.last_loaded = None
         self.plan.refresh_grid()
-        
+
         # Switch view back to planner
         self.tabview.set("Planner")
 
@@ -85,6 +82,7 @@ class App(ctk.CTk):
         """
         self.sett.config = self.config
         self.sett.refresh_ui()
+
 
 if __name__ == "__main__":
     App().mainloop()
