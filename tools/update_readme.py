@@ -57,17 +57,25 @@ def update_readme(min_version, max_version):
 
     print(f"Updating README to support Python: {version_string}")
 
-    # Regex to find: "**Prerequisites:** Python 3.10 or higher."
-    pattern = r"(\*\*Prerequisites:\*\* Python ).*"
+    # Regex captures: Group 1 (Prefix), Group 2 (Version), Group 3 (Trailing)
+    # Matches "3.10" or "3.10 - 3.13" and preserves " or higher."
+    pattern = r"(\*\*Prerequisites:\*\* Python )(\d+\.\d+(?: - \d+\.\d+)?)(.*)"
 
     if not re.search(pattern, content):
-        # Fallback search if the line has changed slightly
-        if not re.search(r"(Python )[\d\.]+", content):
-            print("Critical: Could not find Python version definition in README.")
+        # Fallback: Scope search specifically to the Prerequisites section
+        # Anchors to "**Prerequisites:**" and looks for "Python" followed by digits
+        fallback_scope = r"\*\*Prerequisites:\*\*.*?Python [\d\.]+"
+        if not re.search(fallback_scope, content, re.DOTALL):
+            print(
+                "Critical: Could not find Python version definition "
+                "in Prerequisites section."
+            )
             sys.exit(1)
 
-    # Use lambda to avoid backslash escaping issues in replacement string
-    new_content = re.sub(pattern, lambda m: f"{m.group(1)}{version_string}", content)
+    # Insert the new version into the middle group while keeping prefix and suffix
+    new_content = re.sub(
+        pattern, lambda m: f"{m.group(1)}{version_string}{m.group(3)}", content
+    )
 
     # 3. Safe File Writing
     if new_content != content:
