@@ -7,7 +7,11 @@ Application Constants.
 from enum import Enum
 from typing import List
 
-APP_TITLE: str = "Duty Scheduler Pro - v8.1"
+APP_NAME: str = "Duty Scheduler Pro"
+APP_VERSION: str = "v3.0.0"
+LOG_FILE: str = "app.log"
+
+APP_TITLE: str = f"{APP_NAME} - {APP_VERSION}"
 APP_GEOMETRY: str = "1280x850"
 THEME_MODE: str = "Light"
 THEME_COLOR: str = "blue"

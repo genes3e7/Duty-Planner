@@ -11,10 +11,11 @@ from typing import Dict, List, Optional, Tuple
 
 import holidays
 import pandas as pd
-from ortools.sat.python import cp_model  # type: ignore
+from ortools.sat.python import cp_model
 
-import constants as C
-from config_models import AppConfig
+# UPDATED IMPORTS
+from app import constants as C
+from app.models.config import AppConfig
 
 
 @dataclass
