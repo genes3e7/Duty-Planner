@@ -2,7 +2,7 @@
 
 A professional automated rostering tool designed for 24/7 operations. It uses constraint programming (Google OR-Tools) to generate fair, rule-compliant schedules while optimizing for equal point distribution.
 
-## 🚀 Features
+## 🌟 Features
 
 * **Interactive Grid:** Excel-like interface to view and edit rosters in real-time.
 * **Smart Solver:**
@@ -10,15 +10,14 @@ A professional automated rostering tool designed for 24/7 operations. It uses co
     * **Manpower Constraints:** Enforces daily requirements for AM, PM, 24H, and Standby shifts.
     * **Fairness Optimization:** Mathematically minimizes the variance in "duty points" across all staff.
 * **Flexible Scheduling:**
-    * **Duty Toggle:** Disable specific days entirely (e.g., weekends or office closures) by unchecking the "Duty?" row.
+    * **Duty Toggle:** Disable specific days entirely (e.g., weekends or office closures).
     * **24H Mode:** Toggle individual days between 3-shift mode (AM/PM) and 24-hour duty mode.
-        * *Smart Default:* Only Public Holidays default to 24H mode. Weekends default to standard shifts.
 * **Smart Configuration:**
-    * **Dynamic Import:** "Import Previous Month" now scans for new names and offers to **overwrite** your settings to keep everything in sync.
-    * **GUI Settings:** Adjust staff lists, daily requirements, and point values directly in the app.
-* **Data Integrity:** Imports previous month's balances (Carry Over) to ensure long-term fairness.
+    * **Dynamic Import:** "Import Previous Month" scans for new names and keeps balances in sync.
+    * **GUI Settings:** Adjust staff lists, requirements, and scoring rules directly in the app.
+* **Data Integrity:** Imports previous month's balances to ensure long-term fairness.
 
-## 📦 Installation
+## 🚀 Installation & Usage
 
 1.  **Prerequisites:** Python 3.11 - 3.13
 2.  **Install dependencies:**
@@ -27,46 +26,72 @@ A professional automated rostering tool designed for 24/7 operations. It uses co
     ```
 3.  **Run the application:**
     ```bash
-    python gui.py
+    python run.py
     ```
 
 ## 📖 User Guide
 
 ### 1. Initial Setup
 Navigate to the **Settings** tab:
-* **Daily Requirements:** Set how many people you need for each shift type.
-* **Points Scoring:** Adjust the weight of each shift and multipliers for Weekends/PH.
-* **Personnel List:** Enter staff names (separated by commas or new lines).
+* **Daily Requirements:** Set manpower needs for each shift.
+* **Points Scoring:** Adjust shift weights and multipliers.
+* **Personnel List:** Manage your staff list.
 * Click **Save & Reload** to apply changes.
 
 ### 2. Planning a Roster
 Switch to the **Planner** tab:
-1.  Select the **Month** and **Year** and click **Load Grid**.
-2.  **Disable Days (Optional):** If no duty is required on a specific date (e.g., a weekend), uncheck the box in the **"Duty?"** row. The column will turn grey and be excluded from planning.
-3.  **24H Toggle:** Use the checkboxes in the **"24H?"** row to force specific days into 24-hour duty mode.
-4.  **Manual Constraints:** Click cells to cycle through pre-assigned statuses:
-    * `X` = Leave (Solver will NOT assign duty).
-    * `AM`/`PM`/`24H` = Forced Duty (Solver will keep this).
-5.  **Generate:** Click **GENERATE FILL**. The AI will fill empty slots while respecting your manual inputs and rules.
+1.  Select **Month** and **Year**, then click **Load Grid**.
+2.  **Manual Constraints:** Click cells to pre-assign duties or leave:
+    * `X` = Leave (Solver will skip).
+    * `AM`/`PM`/`24H` = Forced Duty (Solver will respect).
+3.  **Generate:** Click **GENERATE FILL** to auto-fill the rest.
 
 ### 3. Importing & Exporting
-* **Import Previous Month:** Loads an Excel file to carry forward point balances.
-    * *Note:* If the file contains names not in your config, the app will ask if you want to **overwrite** your personnel list with the file's data.
-* **Export xlsx:** Saves the final roster and point summary to Excel.
+* **Import Previous Month:** Load an Excel file to carry forward point balances.
+* **Export xlsx:** Save the final roster to Excel.
 
-### 4. Bulk Actions
-* **Reset Table:** Wipes the entire grid clean.
-* **Clear Duties:** Removes assigned duties (AM/PM/24H/SB) but keeps Leave (`X`) entries intact.
+---
 
-## 🏗 Developer Notes (v3.0 Architecture)
+## 🛠️ Developer & CI/CD Guide
 
-The codebase is modularized for maintainability:
-* `gui.py`: Main Entry Point & Controller.
-* `planner_tab.py`: Grid UI and Interaction Logic.
-* `settings_tab.py`: Configuration UI.
-* `scheduler_engine.py`: Google OR-Tools Wrapper (Logic Layer).
-* `config_models.py`: Strict Data Classes for configuration.
-* `constants.py`: Enums and static constants.
+The codebase uses a modular architecture (`app/` package) for maintainability and testing.
+
+### Project Structure
+```text
+Duty-Planner/
+├── app/
+│   ├── core/       # Business Logic & Data Management
+│   ├── models/     # Configuration Data Classes
+│   ├── ui/         # GUI Components (Planner, Settings)
+│   ├── utils/      # Logging & Helpers
+│   └── main.py     # Application Controller
+├── tests/          # Pytest Suite
+├── tools/          # CI/CD Scripts
+├── run.py          # Entry Point
+└── build.py        # PyInstaller Build Script
+```
+
+### Running Tests
+The project uses `pytest` for unit testing. The CI pipeline automatically runs these on every push to ensure logic integrity.
+
+```bash
+# Run all tests
+pytest tests/
+```
+
+### Building the Executable
+To create a standalone `.exe` (Windows) or binary (Linux/Mac):
+
+```bash
+python build.py
+```
+The output file will be located in the `dist/` folder.
+
+### Automated Workflows (GitHub Actions)
+This repository features a robust CI pipeline that:
+1.  **Tests:** Runs the test suite across Python 3.10–3.13 matrix.
+2.  **Lints:** Automatically fixes code style issues using `ruff`.
+3.  **Updates Docs:** Automatically updates `README.md` with the currently supported Python versions.
 
 ## 📄 License
 

@@ -7,7 +7,7 @@ Defines Data Classes for App Configuration.
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List
 
-from constants import ShiftType
+from app.constants import ShiftType
 
 
 @dataclass

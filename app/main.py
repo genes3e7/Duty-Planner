@@ -5,15 +5,15 @@ Main Application Entry Point for Duty Scheduler Pro v8.0.
 Acts as the Controller, coordinating the Planner and Settings tabs.
 """
 
-import customtkinter as ctk  # type: ignore
-
-import constants as C
+import customtkinter as ctk
 import logger
 
+from app import constants as C
+from app.core.data import DataManager
+from app.ui.planner import PlannerTab
+from app.ui.settings import SettingsTab
+
 # Internal Modules
-from data_manager import DataManager
-from planner_tab import PlannerTab
-from settings_tab import SettingsTab
 
 # Setup Logging and Theme
 logger.setup_logger()

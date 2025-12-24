@@ -48,7 +48,7 @@ jobs:
         pip install pytest
 
     - name: Test with Pytest
-      run: pytest tests.py
+      run: pytest tests/
 
     # Record success for this version
     - name: Record Success

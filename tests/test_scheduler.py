@@ -6,9 +6,9 @@ Unit tests for v3.0.0 Architecture using pytest.
 
 import pytest
 
-from config_models import AppConfig
-from constants import ShiftType
-from scheduler_engine import DutySchedulerEngine, SolverRequest
+from app.constants import ShiftType
+from app.core.scheduler import DutySchedulerEngine, SolverRequest
+from app.models.config import AppConfig
 
 
 @pytest.fixture
