@@ -17,6 +17,11 @@ if os.path.exists("build"):
 
 ctk_path = os.path.dirname(customtkinter.__file__)
 
+# Determine the correct separator for --add-data
+# (semicolon for Windows, colon for POSIX)
+# os.pathsep returns ':' on Linux/Mac and ';' on Windows
+separator = os.pathsep
+
 print("Building Duty Scheduler Pro...")
 
 PyInstaller.__main__.run(
@@ -25,7 +30,7 @@ PyInstaller.__main__.run(
         "--name=DutySchedulerPro",
         "--onefile",
         "--noconsole",
-        f"--add-data={ctk_path};customtkinter",
+        f"--add-data={ctk_path}{separator}customtkinter",
         "--hidden-import=babel.numbers",
         "--hidden-import=openpyxl.cell._writer",
         "--clean",

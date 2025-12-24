@@ -1,28 +1,98 @@
-# Python artifacts
+# --- Python General ---
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Virtual Environments
+# --- Virtual Environments ---
 venv/
 env/
 .venv/
+.env
+venv*/
+ENV/
+env.bak/
+venv.bak/
 
-# Editor/IDE files
+# --- Installer Logs ---
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Unit Tests & Coverage ---
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+htmlcov/
+
+# --- Linters & Formatters ---
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# --- Editor / IDE ---
 .idea/
 .vscode/
 *.swp
+*.swo
+.project
+.pydevproject
+.settings/
 
-# Build artifacts (PyInstaller)
-build/
-dist/
+# --- Operating System ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- PyInstaller ---
 *.spec
 
+# --- Application Specific ---
 # Runtime logs
+*.log
 app.log
 
-# User Configuration (Optional - exclude if you want specific user settings ignored)
-# config.json
-
-# Excel Exports
+# Data exports
 *.xlsx
+*.csv
+
+# Temporary CI artifacts (if run locally)
+artifacts/
+python_version_*.txt
+all_versions.txt
+sorted_versions.txt
+
+# User Configuration
+# (Uncomment if you want to keep your local config private)
+# config.json
