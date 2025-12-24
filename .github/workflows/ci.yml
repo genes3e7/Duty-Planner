@@ -40,6 +40,12 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add .
-        # The '|| echo' part prevents the build from failing if there's nothing to commit
-        git commit -m "style: auto-fix linting and formatting (ruff)" || echo "No changes to commit"
-        git push
+        
+        # Check if there are staged changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit. Skipping push."
+        else
+          git commit -m "style: auto-fix linting and formatting (ruff)"
+          # Explicitly push to the branch associated with this Pull Request
+          git push origin HEAD:${{ github.head_ref }}
+        fi
