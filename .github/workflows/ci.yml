@@ -2,33 +2,42 @@ name: CI
 
 on:
   push:
-    # Only run on push if these specific files are changed
-    paths:
-      - "**.py" # All python files in any folder
-      - "requirements.txt" # Dependency changes
-      - "requirements.in" # Dependency source changes
-      - "pyproject.toml" # Project config changes
-      - ".github/workflows/ci.yml" # Workflow changes (self-test)
+    # Trigger on all pushes, filter inside jobs
   pull_request:
-    # Same filter for PRs
-    paths:
-      - "**.py"
-      - "requirements.txt"
-      - "requirements.in"
-      - "pyproject.toml"
-      - ".github/workflows/ci.yml"
+    # Trigger on all PRs, filter inside jobs
 
 permissions:
   contents: write
 
 jobs:
+  # JOB 1: Detect what actually changed
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          python:
+            - '**.py'
+            - 'requirements.txt'
+            - 'requirements.in'
+            - 'pyproject.toml'
+            # Note: .github/workflows/ci.yml is deliberately EXCLUDED from this list.
+            # Changes to CI config will NOT trigger the heavy test matrix.
+
+  # JOB 2: Run Matrix (Only if Python files changed)
   test-matrix:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Testing a wide range. 3.14 will resolve to alpha/beta if available.
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-      fail-fast: false # Let all run so we can find the valid range
+      fail-fast: false
 
     steps:
     - uses: actions/checkout@v4
@@ -50,7 +59,6 @@ jobs:
     - name: Test with Pytest
       run: pytest tests/
 
-    # Record success for this version
     - name: Record Success
       if: success()
       run: echo "${{ matrix.python-version }}" > python_version_${{ matrix.python-version }}.txt
@@ -62,10 +70,14 @@ jobs:
         name: passed-version-${{ matrix.python-version }}
         path: python_version_${{ matrix.python-version }}.txt
 
+  # JOB 3: Finalize (Update Readme, Lint, Commit)
+  # Runs only if matrix ran (and maybe failed), OR if we forced it.
+  # Here we skip it if 'python' files didn't change, because there's nothing to update/lint.
   finalize-updates:
-    needs: test-matrix
+    needs: [test-matrix, changes]
     runs-on: ubuntu-latest
-    if: always()
+    # Run only if python files changed (matrix ran). 'always()' is needed to run even if matrix failed (to catch partial successes).
+    if: always() && needs.changes.outputs.python == 'true'
     steps:
     - uses: actions/checkout@v4
       with:
@@ -86,10 +98,7 @@ jobs:
            exit 1
         fi
         
-        # Concatenate all version files into one list
         cat artifacts/*.txt > all_versions.txt
-        
-        # Sort versions using version sort (-V)
         sort -V all_versions.txt -o sorted_versions.txt
         
         MIN_VER=$(head -n 1 sorted_versions.txt)
@@ -108,7 +117,6 @@ jobs:
     - name: Update README
       run: python tools/update_readme.py "${{ env.MIN_VER }}" "${{ env.MAX_VER }}"
 
-    # Setup the LOWEST supported version to compile requirements
     - name: Set up Lowest Python (${{ env.MIN_VER }})
       uses: actions/setup-python@v5
       with:
@@ -119,12 +127,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pip-tools
-        # Compile requirements.txt from .in if it exists
         if [ -f requirements.in ]; then 
           pip-compile requirements.in --output-file requirements.txt --resolver=backtracking
         fi
 
-    # Formatting check (using standard utility python)
     - name: Set up Python for Linting
       uses: actions/setup-python@v5
       with:
@@ -177,13 +183,11 @@ jobs:
           # Clean up the leading comma/space
           CHANGES=$(echo "$CHANGES" | sed 's/^, //')
           
-          # Fallback message if something unexpected changed
+          # Fallback message
           if [ -z "$CHANGES" ]; then
             CHANGES="misc updates"
           fi
           
           git commit -m "chore: CI auto-update ($CHANGES)"
-          
-          # Use the secure environment variable for the push
           git push origin HEAD:"$PR_BRANCH"
         fi
