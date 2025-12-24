@@ -24,7 +24,7 @@ def validate_version(version_str):
         sys.exit(1)
 
 
-def update_readme(min_version, max_version):
+def update_readme(min_version, max_version, file_path="README.md"):
     """
     Update README.md prerequisites with the supported Python version(s).
 
@@ -36,17 +36,16 @@ def update_readme(min_version, max_version):
     validate_version(min_version)
     validate_version(max_version)
 
-    readme_path = "README.md"
-    if not os.path.exists(readme_path):
-        print(f"Error: {readme_path} not found.")
+    if not os.path.exists(file_path):
+        print(f"Error: {file_path} not found.")
         sys.exit(1)
 
     # 2. Safe File Reading
     try:
-        with open(readme_path, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
     except OSError as e:
-        print(f"Error reading {readme_path}: {e}")
+        print(f"Error reading {file_path}: {e}")
         sys.exit(1)
 
     # Determine version string format
@@ -59,18 +58,20 @@ def update_readme(min_version, max_version):
 
     # Regex captures:
     # Group 1: Prefix ("**Prerequisites:** Python ")
-    # Group 2: Current Version (e.g. "3.10" or "3.10 - 3.13")
+    # Group 2: Version Range (e.g. "3.10" or "3.10 - 3.12.1")
     # Group 3: Trailing text (e.g. " or higher.")
-    pattern = r"(\*\*Prerequisites:\*\* Python )(\d+\.\d+(?: - \d+\.\d+)?)(.*)"
+    pattern = (
+        r"(\*\*Prerequisites:\*\* Python )"
+        r"(\d+\.\d+(?:\.\d+)?(?: - \d+\.\d+(?:\.\d+)?)?)(.*)"
+    )
 
     if not re.search(pattern, content):
-        # Fallback: Ensure we can at least find "Python <digits>" somewhere
-        # to warn if the file structure is completely unexpected.
+        # Fallback check
         if not re.search(r"(Python )[\d\.]+", content):
             print("Critical: Could not find Python version definition in README.")
             sys.exit(1)
 
-    # Insert new version (string) between Prefix (1) and Suffix (3)
+    # Insert new version string between Prefix (1) and Suffix (3)
     new_content = re.sub(
         pattern, lambda m: f"{m.group(1)}{version_string}{m.group(3)}", content
     )
@@ -78,11 +79,11 @@ def update_readme(min_version, max_version):
     # 3. Safe File Writing
     if new_content != content:
         try:
-            with open(readme_path, "w", encoding="utf-8") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
             print("README.md updated successfully.")
         except OSError as e:
-            print(f"Error writing to {readme_path}: {e}")
+            print(f"Error writing to {file_path}: {e}")
             sys.exit(1)
     else:
         print("README.md already up to date.")

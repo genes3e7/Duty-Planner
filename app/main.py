@@ -1,31 +1,26 @@
 """
-gui.py
+main.py
 
-Main Application Entry Point for Duty Scheduler Pro v8.0.
+Main Application Entry Point.
 Acts as the Controller, coordinating the Planner and Settings tabs.
 """
 
 import customtkinter as ctk
-import logger
 
+# UPDATED IMPORTS: Pointing to the new 'app' package structure
 from app import constants as C
 from app.core.data import DataManager
 from app.ui.planner import PlannerTab
 from app.ui.settings import SettingsTab
+from app.utils import logger
 
-# Internal Modules
-
-# Setup Logging and Theme
+# Setup Logging
 logger.setup_logger()
-ctk.set_appearance_mode(C.THEME_MODE)
 
 
-class App(ctk.CTk):
+class DutySchedulerApp(ctk.CTk):
     """
     Main Window Application Class.
-
-    Manages the application lifecycle, holds shared configuration state,
-    and instantiates the tab controllers.
     """
 
     def __init__(self) -> None:
@@ -35,6 +30,7 @@ class App(ctk.CTk):
         # Window Configuration
         self.title(C.APP_TITLE)
         self.geometry(C.APP_GEOMETRY)
+
         # Load Config once to share across tabs
         self.config = DataManager.load_config()
 
@@ -45,7 +41,6 @@ class App(ctk.CTk):
         self.tabview.grid(row=0, column=0, sticky="nsew", padx=10)
 
         # Instantiate Planner Tab
-        # Pass callback to notify App if Planner changes data (e.g. imports)
         self.plan = PlannerTab(
             self.tabview.add("Planner"),
             self.config,
@@ -54,7 +49,6 @@ class App(ctk.CTk):
         self.plan.pack(fill="both", expand=True)
 
         # Instantiate Settings Tab
-        # Pass callback to notify App if Settings change config
         self.sett = SettingsTab(self.tabview.add("Settings"), self.config, self.on_save)
         self.sett.pack(fill="both", expand=True)
 
@@ -77,12 +71,20 @@ class App(ctk.CTk):
     def on_data_change(self) -> None:
         """
         Callback triggered when Data is changed in Planner.
-        (e.g. Import overwrites personnel).
         Syncs the Settings UI.
         """
         self.sett.config = self.config
         self.sett.refresh_ui()
 
 
+# --- FIX: Define main() so run.py can import it ---
+def main():
+    ctk.set_appearance_mode(C.THEME_MODE)
+    ctk.set_default_color_theme(C.THEME_COLOR)
+
+    app = DutySchedulerApp()
+    app.mainloop()
+
+
 if __name__ == "__main__":
-    App().mainloop()
+    main()
