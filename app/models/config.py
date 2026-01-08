@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List
 from pydantic import BaseModel, Field, ConfigDict
 
 class ConstraintsConfig(BaseModel):
@@ -11,7 +11,6 @@ class ConstraintsConfig(BaseModel):
 class PointsConfig(BaseModel):
     AM: float = 1.0
     PM: float = 1.0
-    # Add alias to serialize as "24H"
     FULL_24H: float = Field(2.0, serialization_alias="24H", validation_alias="24H")
     
     ph_multiplier: float = 2.0
@@ -37,7 +36,6 @@ class AppConfig(BaseModel):
 
     @classmethod
     def default(cls):
-        # Generates 20 fake names for easier testing
         fake_names = [f"Staff {i:02d}" for i in range(1, 21)]
         return cls(personnel=fake_names)
 
@@ -46,4 +44,4 @@ class AppConfig(BaseModel):
     
     @classmethod
     def from_dict(cls, data: Dict):
-        return cls(**data)
+        return cls.model_validate(data)

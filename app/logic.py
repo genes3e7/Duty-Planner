@@ -2,14 +2,17 @@
 app/logic.py
 """
 import io
+import logging
 import pandas as pd
 import holidays
 from typing import Dict, List, Optional, Tuple
 
 from app import constants as C
-from app.core.data import DataManager
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
 from app.models.config import AppConfig
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 def get_holidays(year: int) -> holidays.HolidayBase:
     return holidays.SG(years=year)
@@ -18,12 +21,12 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
     try:
         num_days = pd.Period(f"{year}-{month}").days_in_month
     except ValueError:
+        logger.warning(f"Invalid year/month ({year}/{month}), defaulting to 30 days")
         num_days = 30
         
     sg_holidays = get_holidays(year)
     
     day_data = []
-    # Create columns as STRINGS explicitly to prevent Streamlit type cycling bug
     day_columns = [str(d) for d in range(1, num_days + 1)]
     
     for d in range(1, num_days + 1):
@@ -43,40 +46,36 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
     df_days = pd.DataFrame(day_data)
     df_days.set_index("Day", inplace=True)
 
-    # Initialize Roster with String Columns
     df_roster = pd.DataFrame(index=personnel, columns=day_columns)
     df_roster[:] = ""
     
     return df_roster, df_days
 
-def clear_schedule(df_roster: pd.DataFrame, clear_constraints: bool = False) -> pd.DataFrame:
+def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = False) -> Optional[pd.DataFrame]:
     """
-    Clears the roster grid.
+    Clears the roster grid. Returns None if input is None.
     """
     if df_roster is None:
         return None
     
-    # Create a deep copy to ensure state updates correctly
     df = df_roster.copy()
     
     if clear_constraints:
-        # Wipe everything
         df[:] = ""
     else:
-        # Wipe only active duties using Boolean Masking (More robust than replace)
         duties_to_remove = [
             C.ShiftType.AM.value,
             C.ShiftType.PM.value,
             C.ShiftType.FULL_24H.value,
             C.ShiftType.STANDBY.value
         ]
-        # Replace cells containing any of these values with empty string
         for duty in duties_to_remove:
             mask = (df == duty)
             df[mask] = ""
             
     return df
 
+# ... [prepare_solver_request, run_solver, calculate_stats, export_to_excel_bytes remain unchanged] ...
 def prepare_solver_request(
     year: int, 
     month: int, 
@@ -84,7 +83,6 @@ def prepare_solver_request(
     df_days: pd.DataFrame, 
     config: AppConfig
 ) -> SolverRequest:
-    """Converts UI DataFrames into a SolverRequest object."""
     fixed_assignments = {}
     day_modes = {}
     inactive_days = []
@@ -98,7 +96,6 @@ def prepare_solver_request(
         for day_col in df_roster.columns:
             val = df_roster.at[person, day_col]
             if val:
-                # Convert string column "1" back to int 1 for the solver
                 try:
                     day_idx = int(day_col)
                     fixed_assignments[(person, day_idx)] = val

@@ -12,8 +12,7 @@ def test_app_loads_correctly(app):
     assert not app.exception
     
     # Check for the Sidebar Title "Duty Planner"
-    # st.title() in sidebar usually appears in app.title
-    # Note: Streamlit tests capture titles in order.
+    # Streamlit testing captures titles found in the script execution
     titles = [t.value for t in app.title]
     assert "Duty Planner" in titles
 
@@ -37,13 +36,15 @@ def test_settings_modification(app):
     """Test that changing settings in the UI persists."""
     app.run()
     
-    # 1. Modify Personnel List (The textarea is in the second tab, but widgets are accessible)
+    # 1. Modify Personnel List (The textarea is in the second tab)
+    # We filter for the specific label to be safe
     personnel_areas = [t for t in app.text_area if "Enter names" in t.label]
-    if not personnel_areas:
-        txt_area = app.text_area[0]
-    else:
-        txt_area = personnel_areas[0]
+    
+    # Robustness check: Ensure the element exists before accessing index 0
+    assert personnel_areas, "Expected 'Enter names' text area not found in app"
+    txt_area = personnel_areas[0]
 
+    # Input new names
     txt_area.input("Zebra, Cobra").run()
     
     # 2. Save

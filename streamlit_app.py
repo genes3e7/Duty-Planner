@@ -5,6 +5,7 @@ import os
 import datetime
 from app import constants as C
 from app import logic
+from app.core.data import DataManager  # <--- CRITICAL FIX: Import directly
 
 # Page Configuration
 st.set_page_config(
@@ -16,7 +17,7 @@ st.set_page_config(
 
 # --- Session State Initialization ---
 if "config" not in st.session_state:
-    st.session_state.config = logic.DataManager.load_config()
+    st.session_state.config = DataManager.load_config() # <--- FIXED
 if "prev_balance" not in st.session_state:
     st.session_state.prev_balance = {}
 if "roster_df" not in st.session_state:
@@ -33,7 +34,7 @@ with st.sidebar:
     # Date Picker
     try:
         default_date = datetime.date(st.session_state.config.year, st.session_state.config.month, 1)
-    except:
+    except (ValueError, AttributeError):
         default_date = datetime.date.today().replace(day=1)
 
     sel_date = st.date_input(
@@ -68,22 +69,24 @@ with st.sidebar:
         st.caption("Upload previous month's Excel export to carry over points.")
         up_file = st.file_uploader("Upload .xlsx", type=["xlsx"])
         if up_file:
+            temp_path = "temp_import.xlsx"
             try:
-                with open("temp_import.xlsx", "wb") as f:
+                with open(temp_path, "wb") as f:
                     f.write(up_file.getbuffer())
                 
-                prev = logic.DataManager.load_previous_balance("temp_import.xlsx")
+                prev = DataManager.load_previous_balance(temp_path) # <--- FIXED
                 st.session_state.prev_balance = prev
                 
                 if st.button("Update Personnel List?"):
                     st.session_state.config.personnel = sorted(list(prev.keys()))
                     st.rerun()
                 
-                if os.path.exists("temp_import.xlsx"):
-                    os.remove("temp_import.xlsx")
                 st.success(f"Imported {len(prev)} records!")
             except Exception as e:
                 st.error(f"Error: {e}")
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
 
 # --- Tab 1: Planner ---
 def render_planner():
@@ -91,9 +94,7 @@ def render_planner():
         st.info("👈 Please click 'Load / Reset Grid' in the sidebar to start.")
         return
 
-    # --- SILENT SANITIZER ---
-    # Force columns to string inplace. NO RERUN.
-    # This fixes the input side of the "Alternate Update" bug.
+    # SILENT SANITIZER (Input)
     if not all(isinstance(c, str) for c in st.session_state.roster_df.columns):
         st.session_state.roster_df.columns = st.session_state.roster_df.columns.astype(str)
 
@@ -150,10 +151,12 @@ def render_planner():
                         for p in st.session_state.roster_df.index:
                             if p in udf.index:
                                 for d in st.session_state.roster_df.columns:
+                                    # Simplified matching: Try string first (guaranteed by sanitizer), then int
                                     val = None
-                                    if d in udf.columns: val = udf.at[p, d]
-                                    elif str(d) in udf.columns: val = udf.at[p, str(d)]
-                                    elif int(d) in udf.columns: val = udf.at[p, int(d)]
+                                    if d in udf.columns:
+                                        val = udf.at[p, d]
+                                    elif int(d) in udf.columns:
+                                        val = udf.at[p, int(d)]
                                     
                                     if val is not None and pd.notna(val) and str(val).strip() != "":
                                         st.session_state.roster_df.at[p, d] = str(val)
@@ -166,11 +169,8 @@ def render_planner():
                     st.error(f"Error: {e}")
 
     # 2. ROSTER GRID
-    
-    # Configure Columns
     roster_cols = {}
     for col_name in st.session_state.roster_df.columns:
-        # col_name is guaranteed string now
         day_num = int(col_name) 
         mode = st.session_state.day_config_df.loc[day_num, "Mode"]
         
@@ -186,7 +186,6 @@ def render_planner():
             required=False
         )
 
-    # RENDER EDITOR
     edited_roster = st.data_editor(
         st.session_state.roster_df,
         column_config=roster_cols,
@@ -194,14 +193,12 @@ def render_planner():
         height=500
     )
     
-    # --- OUTPUT SANITIZATION ---
-    # Fix the output side of the "Alternate Update" bug.
-    # If pandas auto-detected Int columns, convert them back to Str immediately.
+    # SILENT SANITIZER (Output)
     if edited_roster is not None:
         edited_roster.columns = edited_roster.columns.astype(str)
         st.session_state.roster_df = edited_roster
 
-    # 3. ACTIONS
+    # ... [Actions and Stats sections remain the same] ...
     st.divider()
     st.subheader("Actions")
     act_c1, act_c2, act_c3 = st.columns([1, 1, 2])
@@ -239,7 +236,6 @@ def render_planner():
 
     st.divider()
     
-    # STATS & EXPORT
     stats_df = logic.calculate_stats(
         st.session_state.roster_df, 
         st.session_state.day_config_df, 
@@ -304,7 +300,7 @@ def render_settings():
 
         if st.form_submit_button("💾 Save Settings"):
             cfg.personnel = sorted(list(set([x.strip() for x in ppl_str.split(",") if x.strip()])))
-            logic.DataManager.save_config(cfg)
+            DataManager.save_config(cfg) # <--- FIXED
             st.session_state.config = cfg
             st.success("Settings Saved!")
             st.rerun()

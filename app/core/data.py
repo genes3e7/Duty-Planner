@@ -1,9 +1,12 @@
 import json
 import os
-from typing import Dict, Optional
+import logging
+from typing import Dict
 import pandas as pd
 from app import constants as C
 from app.models.config import AppConfig
+
+logger = logging.getLogger(__name__)
 
 class DataManager:
     @staticmethod
@@ -12,24 +15,21 @@ class DataManager:
             return AppConfig.default()
         
         try:
-            # FIX: Explicit encoding
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return AppConfig.model_validate(data)
         except Exception as e:
-            print(f"Config load error: {e}")
+            logger.warning(f"Config load error: {e}")
             return AppConfig.default()
 
     @staticmethod
     def save_config(config: AppConfig, filepath: str = C.CONFIG_FILE):
         try:
-            # Use by_alias=True to save "24H" instead of "FULL_24H"
             data = config.model_dump(by_alias=True)
-            # FIX: Explicit encoding
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
         except Exception as e:
-            print(f"Config save error: {e}")
+            logger.error(f"Config save error: {e}")
 
     @staticmethod
     def load_previous_balance(filepath: str) -> Dict[str, float]:
@@ -41,9 +41,10 @@ class DataManager:
             
             for col in df.columns:
                 c_str = str(col).lower().strip()
-                if "name" in c_str:
+                # Precise matching
+                if c_str == "name" or c_str.startswith("name ") or c_str.endswith(" name"):
                     name_col = col
-                if "carry" in c_str and "over" in c_str:
+                if "carry over" in c_str or "carryover" in c_str:
                     balance_col = col
             
             if not name_col or not balance_col:
@@ -62,5 +63,5 @@ class DataManager:
             return balance_map
 
         except Exception as e:
-            print(f"Import error: {e}")
+            logger.error(f"Import error: {e}")
             return {}
