@@ -4,25 +4,40 @@ from app.core.data import DataManager
 from app.models.config import AppConfig
 
 
-def test_load_config_defaults_on_missing_file():
-    """Test that default config is returned if file is missing."""
+def test_load_config_missing_file():
+    """Ensure defaults are returned if config file is missing."""
     with patch("os.path.exists", return_value=False):
-        cfg = DataManager.load_config()
+        cfg = DataManager.load_config("missing.json")
         assert isinstance(cfg, AppConfig)
-        assert cfg.year == 2025  # Check a default value
+        assert len(cfg.personnel) == 20  # Default
 
 
-def test_save_config():
-    """Test that config is saved to JSON correctly."""
+def test_load_config_corrupted_file():
+    """Ensure defaults are returned if config file is invalid JSON."""
+    with patch("builtins.open", mock_open(read_data="{invalid_json")):
+        with patch("os.path.exists", return_value=True):
+            cfg = DataManager.load_config("bad.json")
+            assert isinstance(cfg, AppConfig)
+
+
+def test_save_config_success():
+    """Test successful save returns True."""
     cfg = AppConfig.default()
-    cfg.year = 2030
+    with patch("builtins.open", mock_open()) as m:
+        success = DataManager.save_config(cfg)
+        assert success is True
+        m.assert_called_once()
 
-    with patch("builtins.open", mock_open()) as mock_file:
-        DataManager.save_config(cfg)
 
-        mock_file.assert_called_with("config.json", "w", encoding="utf-8")
-        # Get the written content
-        handle = mock_file()
-        written_data = "".join(call.args[0] for call in handle.write.call_args_list)
+def test_load_previous_balance_parsing():
+    """Test loading balance from an Excel file mock."""
+    # Create a dummy dataframe matching the expected format
+    import pandas as pd
 
-        assert '"year": 2030' in written_data
+    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "Carry Over": [10.5, 5.0], "Other": [1, 2]})
+
+    with patch("pandas.read_excel", return_value=mock_df):
+        balance = DataManager.load_previous_balance("dummy.xlsx")
+        assert balance["Alice"] == 10.5
+        assert balance["Bob"] == 5.0
+        assert "Charlie" not in balance

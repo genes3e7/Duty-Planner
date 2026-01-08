@@ -1,89 +1,107 @@
-import pytest
 import pandas as pd
+import pytest
+
 from app import logic
 from app.models.config import AppConfig
 
+
 @pytest.fixture
 def default_config():
-    """Returns a default configuration object."""
     return AppConfig.default()
 
-@pytest.fixture
-def mock_roster_data(default_config):
-    """Creates a basic roster and days dataframe for testing."""
-    year, month = 2024, 1
-    # Use the logic function to generate structure
-    roster, days = logic.generate_empty_schedule(year, month, default_config.personnel)
-    return roster, days
 
-def test_generate_empty_schedule(default_config):
-    """Test structure of generated dataframes."""
-    roster, days = logic.generate_empty_schedule(2025, 1, default_config.personnel)
-    
-    # Check Roster
-    assert isinstance(roster, pd.DataFrame)
-    # Roster columns should be strings based on recent fixes
-    assert all(isinstance(c, str) for c in roster.columns)
-    assert len(roster.index) == len(default_config.personnel)
-    
-    # Check Days
-    assert isinstance(days, pd.DataFrame)
-    assert "Active" in days.columns
-    assert "Mode" in days.columns
-    assert len(days) == 31  # Jan has 31 days
+def test_get_day_num_parsing():
+    """Test the robust day number parser."""
+    assert logic.get_day_num("D1") == 1
+    assert logic.get_day_num("D31") == 31
+    assert logic.get_day_num("D05") == 5
+    # Edge cases
+    assert logic.get_day_num("1") == 1
+    assert logic.get_day_num("Invalid") == 0
+    assert logic.get_day_num(None) == 0
 
-def test_prepare_solver_request(default_config, mock_roster_data):
-    """Test that UI dataframes are correctly converted to SolverRequest."""
-    roster, days = mock_roster_data
-    
-    # 1. Setup specific data
-    person = default_config.personnel[0]
-    # Set day "5" (String column) to "X"
-    roster.at[person, "5"] = "X" 
-    
-    # Disable day 10
-    days.at[10, "Active"] = False
-    
-    # 2. Execute
-    req = logic.prepare_solver_request(2024, 1, roster, days, default_config)
-    
-    # 3. Verify
-    # Check assignments: (Person, DayInt) -> Value
-    assert (person, 5) in req.fixed_assignments
-    assert req.fixed_assignments[(person, 5)] == "X"
-    
-    # Check inactive days
-    assert 10 in req.inactive_days
 
-def test_calculate_stats_logic(default_config, mock_roster_data):
-    """Test the points calculation logic."""
-    roster, days = mock_roster_data
-    person = default_config.personnel[0]
-    
-    # --- CONFIGURATION FOR TEST ---
-    # Set explicit values to ensure test doesn't break if defaults change
-    default_config.points.AM = 1.0
-    default_config.points.weekend_multiplier = 1.5
-    default_config.points.weekend_is_multiplier = True
-    
-    # --- SCENARIO 1: Standard Duty ---
-    # Day 2 is a standard weekday (Jan 2 2024 was Tuesday)
-    days.at[2, "Is_Weekend"] = False
+def test_generate_schedule_structure(default_config):
+    """Test generation of empty dataframes for a specific month."""
+    # Test Leap Year (Feb 2024 = 29 days)
+    roster, days = logic.generate_empty_schedule(2024, 2, ["A", "B"])
+
+    assert len(days) == 29
+    assert len(roster.columns) == 29
+    assert roster.columns[0] == "D1"
+    assert roster.columns[-1] == "D29"
+    assert len(roster) == 2
+
+    # Verify index setup
+    assert days.index.name == "Day"
+    assert roster.index.name is None  # Default index is names
+
+
+def test_clear_schedule_modes():
+    """Test clearing specific duties vs clearing everything."""
+    # Setup a roster with mixed data
+    df = pd.DataFrame({"D1": ["AM", "X"], "D2": ["24H", ""]}, index=["A", "B"])
+
+    # 1. Clear Duties Only (Keep X)
+    res1 = logic.clear_schedule(df, clear_constraints=False)
+    assert res1.at["A", "D1"] == ""  # AM cleared
+    assert res1.at["B", "D1"] == "X"  # X kept
+    assert res1.at["A", "D2"] == ""  # 24H cleared
+
+    # 2. Clear All
+    res2 = logic.clear_schedule(df, clear_constraints=True)
+    assert res2.at["B", "D1"] == ""  # X also cleared
+
+
+def test_calculate_stats_multipliers(default_config):
+    """Exhaustive test of point scoring logic."""
+    # Use standard generate to get correct D-column format
+    roster, days = logic.generate_empty_schedule(2025, 1, ["TestUser"])
+
+    # Configure Points
+    pts = default_config.points
+    pts.AM = 1.0
+    pts.ph_multiplier = 2.0
+    pts.weekend_multiplier = 1.5
+
+    # Case A: PH (Multiplier)
+    pts.ph_is_multiplier = True
+    days.at[1, "Is_PH"] = True
+    days.at[1, "Is_Weekend"] = False
+
+    # Case B: Weekend (Addition)
+    pts.weekend_is_multiplier = False
     days.at[2, "Is_PH"] = False
-    roster.at[person, "2"] = "AM"
-    
-    # --- SCENARIO 2: Weekend Duty ---
-    # Day 6 is a weekend (Jan 6 2024 was Saturday)
-    days.at[6, "Is_Weekend"] = True
-    days.at[6, "Is_PH"] = False
-    roster.at[person, "6"] = "AM"
-    
-    # --- EXECUTE ---
-    stats = logic.calculate_stats(roster, days, default_config, prev_balance={})
-    
-    # --- VERIFY ---
-    # Get stats for the specific person
-    person_stats = stats[stats["Name"] == person].iloc[0]
-    
-    # Expected: 1.0 (Day 2) + 1.5 (Day 6: 1.0 * 1.5) = 2.5
-    assert person_stats["Month Pts"] == 2.5
+    days.at[2, "Is_Weekend"] = True
+
+    # Assign Duties
+    # NOTE: Must use "D1", "D2" keys as per logic.generate_empty_schedule
+    roster.at["TestUser", "D1"] = "AM"
+    roster.at["TestUser", "D2"] = "AM"
+
+    stats = logic.calculate_stats(roster, days, default_config, {})
+    user_stats = stats.iloc[0]
+
+    # Calculation:
+    # D1 (PH *): 1.0 * 2.0 = 2.0
+    # D2 (Wknd +): 1.0 + 1.5 = 2.5
+    # Total = 4.5
+    assert user_stats["Month Pts"] == 4.5
+
+
+def test_prepare_solver_request_parsing(default_config):
+    """Test converting dataframe to solver request object."""
+    roster, days = logic.generate_empty_schedule(2025, 1, default_config.personnel)
+    p1 = default_config.personnel[0]
+
+    roster.at[p1, "D5"] = "AM"
+    days.at[10, "Active"] = False
+    days.at[5, "Mode"] = "SHIFT"
+
+    req = logic.prepare_solver_request(2025, 1, roster, days, default_config)
+
+    assert req.year == 2025
+    assert req.month == 1
+    assert req.fixed_assignments[(p1, 5)] == "AM"
+    assert 10 in req.inactive_days
+    assert req.day_modes[5] == "SHIFT"

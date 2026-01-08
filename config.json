@@ -2,15 +2,8 @@
     "year": 2026,
     "month": 1,
     "personnel": [
-        "A",
-        "B",
-        "C",
-        "D",
-        "E",
-        "F",
-        "G",
-        "H",
-        "I"
+        "Cobra",
+        "Zebra"
     ],
     "constraints": {
         "personnel_needed_per_shift": {

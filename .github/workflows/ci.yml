@@ -62,18 +62,13 @@ jobs:
         else
           pip install -r requirements.in
         fi
-        # Install dev/test dependencies
+        # Install all test/dev dependencies here to ensure they are available
         pip install pytest pytest-cov ruff
 
     - name: Ruff Format & Fix
       run: |
-        if [ -f requirements-dev.txt ]; then
-          pip install -r requirements-dev.txt
-          ruff check . --fix
-          ruff format .
-        else
-          echo "::warning::requirements-dev.txt missing, skipping Ruff format/lint"
-        fi
+        ruff check . --fix
+        ruff format .
 
     - name: Run Tests
       run: pytest --cov=app tests/
