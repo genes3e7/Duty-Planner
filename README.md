@@ -1,3 +1,5 @@
+[![Supported Python](https://img.shields.io/badge/python-3.12_to_3.15-blue)](https://www.python.org/downloads/)
+
 # Duty Scheduler Pro v3.0.0
 
 A professional automated rostering tool designed for 24/7 operations. It uses constraint programming (Google OR-Tools) to generate fair, rule-compliant schedules while optimizing for equal point distribution.
@@ -19,12 +21,11 @@ A professional automated rostering tool designed for 24/7 operations. It uses co
 
 ## 🚀 Installation & Usage
 
-1.  **Prerequisites:** Python 3.11 - 3.13
-2.  **Install dependencies:**
+1.  **Install dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
-3.  **Run the application:**
+2.  **Run the application:**
     ```bash
     python run.py
     ```

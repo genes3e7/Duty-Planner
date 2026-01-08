@@ -1,8 +1,6 @@
-customtkinter
 holidays
 openpyxl
 ortools
 pandas
-pyinstaller
-pytest
-ruff
+streamlit
+pydantic

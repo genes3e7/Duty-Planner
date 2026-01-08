@@ -8,16 +8,15 @@ permissions:
   contents: write
 
 jobs:
-  # JOB 1: Detect what actually changed
+  # JOB 1: Detect Changes
   changes:
     runs-on: ubuntu-latest
     outputs:
       python: ${{ steps.filter.outputs.python }}
     steps:
     - uses: actions/checkout@v4
-    
-    # Security Fix: Pinned SHA for dorny/paths-filter
-    - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36
+    # Pinned to SHA for security
+    - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
       id: filter
       with:
         filters: |
@@ -25,38 +24,101 @@ jobs:
             - '**.py'
             - 'requirements.txt'
             - 'requirements.in'
+            - 'requirements-dev.txt'
+            - 'requirements-dev.in'
             - 'pyproject.toml'
 
-  # JOB 2: Run Matrix
-  test-matrix:
+  # JOB 2: Compile Dependencies (Runs First)
+  compile-deps:
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+
+    - name: Compile Lockfiles
+      run: |
+        python -m pip install --upgrade pip
+        pip install pip-tools
+        
+        # 1. Compile Prod Deps
+        if [ -f requirements.in ]; then 
+          pip-compile requirements.in --output-file requirements.txt --resolver=backtracking
+        fi
+        
+        # 2. Compile Dev Deps (Conditionally Constrained)
+        if [ -f requirements-dev.in ]; then 
+          if [ -f requirements.txt ]; then
+            # The -c flag ensures dev deps don't upgrade prod packages unexpectedly
+            pip-compile requirements-dev.in --output-file requirements-dev.txt --resolver=backtracking -c requirements.txt
+          else
+            # Compile without constraints if prod requirements don't exist
+            pip-compile requirements-dev.in --output-file requirements-dev.txt --resolver=backtracking
+          fi
+        fi
+
+    # Upload artifacts so subsequent jobs use these EXACT versions
+    - name: Upload Lockfiles
+      uses: actions/upload-artifact@v4
+      with:
+        name: lockfiles
+        path: |
+          requirements.txt
+          requirements-dev.txt
+        if-no-files-found: warn
+
+  # JOB 3: Test Matrix
+  test-matrix:
+    needs: compile-deps
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Restored 3.14 as requested
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
       fail-fast: false
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
-        allow-prereleases: true
 
-    - name: Install dependencies
+    # Download the fresh lockfiles generated in the previous job
+    # continue-on-error handles cases where compile-deps ran but produced no artifacts (warned)
+    - name: Download Lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+      continue-on-error: true
+    
+    - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
+        
+        # Build install command dynamically based on available files
+        INSTALL_ARGS=""
         if [ -f requirements.txt ]; then
-          pip install -r requirements.txt
+          INSTALL_ARGS="$INSTALL_ARGS -r requirements.txt"
         fi
-        pip install pytest
+        if [ -f requirements-dev.txt ]; then
+          INSTALL_ARGS="$INSTALL_ARGS -r requirements-dev.txt"
+        fi
+        
+        if [ -n "$INSTALL_ARGS" ]; then
+          echo "Installing with: pip install $INSTALL_ARGS"
+          pip install $INSTALL_ARGS
+        else
+          echo "No requirements files found to install."
+        fi
 
     - name: Test with Pytest
-      run: pytest tests/
+      run: pytest
 
     - name: Record Success
       if: success()
@@ -69,27 +131,38 @@ jobs:
         name: passed-version-${{ matrix.python-version }}
         path: python_version_${{ matrix.python-version }}.txt
 
-  # JOB 3: Finalize (Update Readme, Lint, Commit)
+  # JOB 4: Finalize (Update Readme, Lint, Commit)
   finalize-updates:
-    needs: [test-matrix, changes]
+    needs: [test-matrix, compile-deps]
     runs-on: ubuntu-latest
-    if: always() && needs.changes.outputs.python == 'true'
+    # Run IF compile-deps succeeded (we have artifacts to commit) AND allow running even if test-matrix failed (for partial badge updates)
+    if: always() && needs.compile-deps.result == 'success'
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    - name: Download all artifacts
+    # 1. Download Version Success Flags
+    - name: Download Version Artifacts
       uses: actions/download-artifact@v4
       with:
-        path: artifacts
         pattern: passed-version-*
+        path: artifacts
         merge-multiple: true
 
+    # 2. Download Fresh Lockfiles (to commit them)
+    # Added continue-on-error to handle cases where compile-deps was skipped or warned
+    - name: Download Lockfiles
+      uses: actions/download-artifact@v4
+      with:
+        name: lockfiles
+      continue-on-error: true
+
+    # 3. Calculate Supported Range
     - name: Determine Supported Range
       id: versions
       run: |
-        if [ -z "$(ls -A artifacts)" ]; then
+        if [ ! -d artifacts ] || [ -z "$(ls -A artifacts)" ]; then
            echo "No versions passed! Failing job."
            exit 1
         fi
@@ -100,50 +173,32 @@ jobs:
         MIN_VER=$(head -n 1 sorted_versions.txt)
         MAX_VER=$(tail -n 1 sorted_versions.txt)
         
-        echo "Calculated Range: $MIN_VER - $MAX_VER"
-        
         echo "MIN_VER=$MIN_VER" >> $GITHUB_ENV
         echo "MAX_VER=$MAX_VER" >> $GITHUB_ENV
 
-    - name: Set up Utility Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.13"
-
-    - name: Update README
-      run: python tools/update_readme.py "${{ env.MIN_VER }}" "${{ env.MAX_VER }}"
-
-    - name: Set up Lowest Python (${{ env.MIN_VER }})
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.MIN_VER }}
-        allow-prereleases: true
-
-    - name: Compile requirements.txt
+    # 4. Update README Badge
+    - name: Update README Badge
       run: |
-        python -m pip install --upgrade pip
-        pip install pip-tools
-        if [ -f requirements.in ]; then 
-          pip-compile requirements.in --output-file requirements.txt --resolver=backtracking
+        if grep -qE "badge/python-[0-9.]+.*-blue" README.md; then
+          sed -i -E "s/badge\/python-[0-9.]+(.*)-blue/badge\/python-${{ env.MIN_VER }}_to_${{ env.MAX_VER }}-blue/" README.md
+          echo "README badge updated successfully"
+        else
+          echo "::warning::Python version badge not found in README.md"
         fi
 
-    - name: Set up Python for Linting
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.13"
-
+    # 5. Lint & Format
     - name: Ruff Format & Fix
       run: |
-        pip install ruff
-        ruff check . --fix
-        ruff format .
+        if [ -f requirements-dev.txt ]; then
+          # Install dev dependencies (includes Ruff)
+          pip install -r requirements-dev.txt
+          ruff check . --fix
+          ruff format .
+        else
+          echo "requirements-dev.txt missing, skipping Ruff"
+        fi
 
-    - name: Verify Builder (PyInstaller)
-      run: |
-        pip install pyinstaller
-        pip install -r requirements.txt
-        python build.py
-
+    # 6. Commit Changes
     - name: Commit and Push changes
       env:
         PR_BRANCH: ${{ github.head_ref || github.ref_name }}
@@ -153,31 +208,41 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         
-        git add .
+        # Explicitly stage known config files that might be new or modified
+        git add README.md requirements*.txt requirements*.in || true
+        
+        # Update-only stage for tracked files to catch ruff fixes in .py files
+        # This prevents adding untracked/new python files accidentally
+        git add -u || true
         
         if git diff --staged --quiet; then
           echo "No changes to commit."
         else
-          CHANGES=""
+          # Construct commit message using array
+          CHANGES=()
+          if git diff --staged --name-only | grep -q "README.md"; then CHANGES+=("versions ($MIN_VER-$MAX_VER)"); fi
           
-          if git diff --staged --name-only | grep -q "README.md"; then
-            CHANGES="$CHANGES, versions ($MIN_VER-$MAX_VER)"
+          # Tighter pattern match for requirements files (txt or in)
+          if git diff --staged --name-only | grep -qE "requirements.*\.(txt|in)$"; then CHANGES+=("deps"); fi
+          
+          if git diff --staged --name-only | grep -q ".py$"; then CHANGES+=("formatting"); fi
+          
+          if [ ${#CHANGES[@]} -eq 0 ]; then
+            CHANGES_STR="misc updates"
+          else
+            # Join array with ", "
+            CHANGES_STR=$(IFS=", "; echo "${CHANGES[*]}")
           fi
           
-          if git diff --staged --name-only | grep -q "requirements.txt"; then
-            CHANGES="$CHANGES, deps"
-          fi
+          git commit -m "chore: CI auto-update ($CHANGES_STR)"
           
-          if git diff --staged --name-only | grep -q ".py$"; then
-            CHANGES="$CHANGES, formatting"
-          fi
+          # Pull latest changes to resolve race conditions
+          # Fallback to merge strategy if rebase fails
+          git pull --rebase origin "$PR_BRANCH" || {
+            echo "::warning::Rebase failed, attempting merge strategy"
+            git rebase --abort 2>/dev/null || true
+            git pull --no-rebase origin "$PR_BRANCH"
+          }
           
-          CHANGES=$(echo "$CHANGES" | sed 's/^, //')
-          
-          if [ -z "$CHANGES" ]; then
-            CHANGES="misc updates"
-          fi
-          
-          git commit -m "chore: CI auto-update ($CHANGES)"
           git push origin HEAD:"$PR_BRANCH"
         fi

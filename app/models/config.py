@@ -1,107 +1,49 @@
-"""
-config_models.py
+from typing import Dict, List, Optional
+from pydantic import BaseModel, Field, ConfigDict
 
-Defines Data Classes for App Configuration.
-"""
-
-from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List
-
-from app.constants import ShiftType
-
-
-@dataclass
-class ConstraintsConfig:
-    """Manpower Rules."""
-
-    standby_per_day: int = 1
-    personnel_needed_per_shift: Dict[str, int] = field(
-        default_factory=lambda: {
-            ShiftType.AM.value: 1,
-            ShiftType.PM.value: 1,
-            ShiftType.FULL_24H.value: 1,
-        }
+class ConstraintsConfig(BaseModel):
+    personnel_needed_per_shift: Dict[str, int] = Field(
+        default_factory=lambda: {"AM": 1, "PM": 1, "24H": 1}
     )
+    standby_per_day: int = 1
+    max_consecutive_duties: int = 3
 
-
-@dataclass
-class PointsConfig:
-    """Scoring Rules."""
-
+class PointsConfig(BaseModel):
     AM: float = 1.0
     PM: float = 1.0
-    FULL_24H: float = 3.0
-    STANDBY: float = 0.0
-    weekend_multiplier: float = 1.5
+    # Add alias to serialize as "24H"
+    FULL_24H: float = Field(2.0, serialization_alias="24H", validation_alias="24H")
+    
     ph_multiplier: float = 2.0
+    weekend_multiplier: float = 1.5
+    
+    ph_is_multiplier: bool = True
+    weekend_is_multiplier: bool = True
+    
+    model_config = ConfigDict(populate_by_name=True)
 
     def get_by_type(self, shift_type: str) -> float:
-        if shift_type == ShiftType.AM:
-            return self.AM
-        if shift_type == ShiftType.PM:
-            return self.PM
-        if shift_type == ShiftType.FULL_24H:
-            return self.FULL_24H
-        if shift_type == ShiftType.STANDBY:
-            return self.STANDBY
+        if shift_type == "AM": return self.AM
+        if shift_type == "PM": return self.PM
+        if shift_type == "24H": return self.FULL_24H
         return 0.0
 
-
-@dataclass
-class AppConfig:
-    """Root Config."""
-
-    year: int
-    month: int
-    personnel: List[str]
-    mode: str
-    points: PointsConfig
-    constraints: ConstraintsConfig
+class AppConfig(BaseModel):
+    year: int = 2025
+    month: int = 1
+    personnel: List[str] = Field(default_factory=list)
+    constraints: ConstraintsConfig = Field(default_factory=ConstraintsConfig)
+    points: PointsConfig = Field(default_factory=PointsConfig)
 
     @classmethod
-    def default(cls) -> "AppConfig":
-        """Default factory."""
-        return cls(
-            year=2025,
-            month=1,
-            mode="hybrid",
-            personnel=["A", "B", "C", "D", "E", "F", "G", "H", "I"],
-            points=PointsConfig(),
-            constraints=ConstraintsConfig(),
-        )
+    def default(cls):
+        # Generates 20 fake names for easier testing
+        fake_names = [f"Staff {i:02d}" for i in range(1, 21)]
+        return cls(personnel=fake_names)
 
-    def to_dict(self) -> Dict[str, Any]:
-        data = asdict(self)
-        data["points"]["24H"] = data["points"].pop("FULL_24H")
-        data["points"]["S/B"] = data["points"].pop("STANDBY")
-        return data
-
+    def to_dict(self):
+        return self.model_dump(by_alias=True)
+    
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
-        try:
-            pts = data.get("points", {})
-            p_conf = PointsConfig(
-                AM=pts.get("AM", 1.0),
-                PM=pts.get("PM", 1.0),
-                FULL_24H=pts.get("24H", 3.0),
-                STANDBY=pts.get("S/B", 0.0),
-                weekend_multiplier=pts.get("weekend_multiplier", 1.5),
-                ph_multiplier=pts.get("ph_multiplier", 2.0),
-            )
-            c_data = data.get("constraints", {})
-            c_conf = ConstraintsConfig(
-                standby_per_day=c_data.get("standby_per_day", 1),
-                personnel_needed_per_shift=c_data.get(
-                    "personnel_needed_per_shift", {"AM": 1, "PM": 1, "24H": 1}
-                ),
-            )
-            return cls(
-                year=data.get("year", 2025),
-                month=data.get("month", 1),
-                mode=data.get("mode", "hybrid"),
-                personnel=data.get("personnel", []),
-                points=p_conf,
-                constraints=c_conf,
-            )
-        except Exception:
-            return cls.default()
+    def from_dict(cls, data: Dict):
+        return cls(**data)

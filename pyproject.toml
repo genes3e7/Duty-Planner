@@ -1,16 +1,14 @@
-# pyproject.toml
+[project]
+requires-python = ">=3.12"
 
 [tool.ruff]
-# Target Python 3.10 (lowest in CI matrix) to ensure compatibility across 3.10 - 3.14
 target-version = "py310"
-line-length = 88
+line-length = 100
 
 [tool.ruff.lint]
-# E = Error, F = Pyflakes, I = Import Sorting
-select = ["E", "F", "I"]
+select = ["E", "F", "I", "W", "B", "UP", "C4", "SIM"]
 
 [tool.pytest.ini_options]
-# testpaths tells pytest where to look when run without arguments
+pythonpath = ["."]
 testpaths = ["tests"]
-# Ensure it looks for the correct file pattern
 python_files = ["test_*.py"]
