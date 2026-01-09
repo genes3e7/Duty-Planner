@@ -16,7 +16,8 @@ def test_get_day_num_parsing():
     assert logic.get_day_num("D31") == 31
     assert logic.get_day_num("D05") == 5
     # Edge cases
-    assert logic.get_day_num("1") == 1
+    # Strict parsing now requires 'D' prefix to avoid false positives (e.g. 'Date' -> 'ate')
+    assert logic.get_day_num("1") == 0
     assert logic.get_day_num("Invalid") == 0
     assert logic.get_day_num(None) == 0
 
@@ -57,6 +58,9 @@ def test_calculate_stats_multipliers(default_config):
     """Exhaustive test of point scoring logic."""
     # Use standard generate to get correct D-column format
     roster, days = logic.generate_empty_schedule(2025, 1, ["TestUser"])
+
+    # Update config to match roster personnel (Fix for failing test)
+    default_config.personnel = ["TestUser"]
 
     # Configure Points
     pts = default_config.points

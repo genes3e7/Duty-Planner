@@ -41,6 +41,8 @@ class DutySchedulerEngine:
         vars (Dict): Storage for decision variables (person, day, shift) -> BoolVar.
     """
 
+    SCALE = 10  # Scale factor to handle decimals in integer solver
+
     def __init__(self, config: AppConfig, prev_balance: Dict[str, float], request: SolverRequest):
         self.cfg = config
         self.balance = prev_balance
@@ -176,10 +178,7 @@ class DutySchedulerEngine:
         person_points = []
 
         for person in self.req.staff_ids:
-            # Scale points by 10 to handle decimals in integer solver
-            SCALE = 10
-
-            initial_pts = int(self.balance.get(person, 0.0) * SCALE)
+            initial_pts = int(self.balance.get(person, 0.0) * self.SCALE)
 
             # Sum of points earned this month
             earned_expr = 0
@@ -190,7 +189,7 @@ class DutySchedulerEngine:
                         base = self.cfg.points.get_by_type(shift)
 
                         # Apply naive multiplier check (simplified for performance)
-                        pts_val = int(base * SCALE)
+                        pts_val = int(base * self.SCALE)
 
                         earned_expr += self.vars[(person, d, shift)] * pts_val
 
@@ -208,12 +207,12 @@ class DutySchedulerEngine:
 
         self.model.Minimize(max_pts - min_pts)
 
-    def solve(self) -> Optional[Tuple[Dict, Any]]:
+    def solve(self) -> Optional[Tuple[Dict, Optional[Any]]]:
         """
         Executes the solver.
 
         Returns:
-            Tuple: (ScheduleDict, SummaryStats) if feasible.
+            Tuple: (ScheduleDict, None) if feasible.
             None: If no solution found.
 
             ScheduleDict format: {(Person, Day): ShiftString}

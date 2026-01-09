@@ -1,6 +1,9 @@
+import logging
 from typing import Dict, List
 
 from pydantic import BaseModel, ConfigDict, Field
+
+logger = logging.getLogger(__name__)
 
 
 class ConstraintsConfig(BaseModel):
@@ -29,6 +32,8 @@ class PointsConfig(BaseModel):
             return self.PM
         if shift_type == "24H":
             return self.FULL_24H
+
+        logger.warning(f"Unknown shift type: {shift_type}")
         return 0.0
 
 

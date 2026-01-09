@@ -8,11 +8,13 @@ It handles data transformation, safe parsing, and orchestrating the solving proc
 
 import io
 import logging
+import re
 from typing import Dict, List, Optional, Tuple
 
 import holidays
 import pandas as pd
-from openpyxl.styles import Border, Side  # Import specific classes for Border definition
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from app import constants as C
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
@@ -33,8 +35,11 @@ def get_day_num(col_name: str) -> int:
         int: The day number (1-31), or 0 if parsing fails.
     """
     try:
-        # Remove 'D' prefix and convert to int
-        return int(str(col_name).replace("D", ""))
+        # Match exactly "D" followed by digits to be stricter
+        match = re.match(r"^D(\d+)$", str(col_name))
+        if match:
+            return int(match.group(1))
+        return 0
     except ValueError:
         return 0
 
@@ -104,6 +109,26 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
     return df_roster, df_days
 
 
+def synchronize_roster_index(df_roster: pd.DataFrame, new_personnel: List[str]) -> pd.DataFrame:
+    """
+    Reindexes the roster DataFrame to match a new list of personnel.
+    Preserves existing data for names that match.
+    Adds new rows for new names.
+    Removes rows for names that were removed.
+    """
+    if df_roster is None:
+        return None
+
+    # Reindex preserves existing labels and fills missing ones
+    # fill_value="" ensures new rows are empty strings, not NaN
+    new_df = df_roster.reindex(index=new_personnel, fill_value="")
+
+    # Ensure no NaNs crept in
+    new_df = new_df.fillna("")
+
+    return new_df
+
+
 def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = False) -> Optional[pd.DataFrame]:
     """
     Clears data from the roster grid.
@@ -120,22 +145,37 @@ def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = 
     if df_roster is None:
         return None
 
-    df = df_roster.copy()
+    # Use a deep copy to ensure we have a totally clean reference
+    df = df_roster.copy(deep=True)
 
     if clear_constraints:
+        # Option 1: Clear Everything
         df[:] = ""
     else:
-        # List of specific duties to remove
-        duties_to_remove = [
-            C.ShiftType.AM.value,
-            C.ShiftType.PM.value,
-            C.ShiftType.FULL_24H.value,
-            C.ShiftType.STANDBY.value,
-        ]
-        # Boolean masking is safer than replace() for mixed types
-        for duty in duties_to_remove:
-            mask = df == duty
-            df[mask] = ""
+        # Option 2: Clear Duties Only (Keep 'X')
+        # We switch back to explicit loop-based processing (using .iat)
+        # This is the most reliable way to handle "X" detection regardless
+        # of column data types or index uniqueness issues.
+        rows, cols = df.shape
+        for r in range(rows):
+            for c in range(cols):
+                val = df.iat[r, c]
+
+                # Check for empty values
+                if pd.isna(val) or val is None or val == "":
+                    continue
+
+                # Normalize
+                s_val = str(val).strip().upper()
+
+                if not s_val:
+                    continue
+
+                # Robust check for X
+                if "X" in s_val:
+                    df.iat[r, c] = "X"  # Preserve/Normalize
+                else:
+                    df.iat[r, c] = ""  # Clear
 
     return df
 
@@ -255,9 +295,6 @@ def calculate_stats(
 
 def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, config: AppConfig) -> bytes:
     """Generates a downloadable Excel file from the DataFrames."""
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
-
     output = io.BytesIO()
     wb = Workbook()
     ws = wb.active

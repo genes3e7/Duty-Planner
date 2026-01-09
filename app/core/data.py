@@ -71,8 +71,12 @@ class DataManager:
             for col in df.columns:
                 c_str = str(col).lower().strip()
                 if c_str == "name" or c_str.startswith("name ") or c_str.endswith(" name"):
+                    if name_col is not None:
+                        logger.warning(f"Multiple name column candidates: {name_col} and {col}")
                     name_col = col
                 if "carry over" in c_str or "carryover" in c_str:
+                    if balance_col is not None:
+                        logger.warning(f"Multiple balance column candidates: {balance_col} and {col}")
                     balance_col = col
 
             if not name_col or not balance_col:

@@ -16,12 +16,21 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
 
     # --- STATE HEALER ---
     if not isinstance(st.session_state.roster_df, pd.DataFrame):
-        st.warning("⚠️ Data state corruption detected. Auto-healing...")
+        st.warning(f"⚠️ Data state corruption detected (Type: {type(st.session_state.roster_df)}). Auto-healing...")
         r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, st.session_state.config.personnel)
         st.session_state.roster_df = r_df
         st.session_state.day_config_df = d_df
         st.session_state.loaded_date = (sel_year, sel_month)
         st.rerun()
+
+    # --- VERSION CONTROL FOR EDITOR ---
+    # We use a version number to dynamically change the key of the data_editor.
+    # This forces Streamlit to destroy and recreate the widget when we want a hard reset (like Clearing).
+    if "roster_version" not in st.session_state:
+        st.session_state.roster_version = 0
+
+    # Construct the dynamic key for this render cycle
+    editor_key = f"roster_editor_{st.session_state.roster_version}"
 
     # HEADERS
     loaded_year, loaded_month = st.session_state.loaded_date
@@ -41,16 +50,18 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
         with col_cfg1:
             st.subheader("Day Settings")
             b1, b2 = st.columns(2)
+            # Fix: Using width="stretch" as requested by logs
             with b1:
-                if st.button("Set All SHIFT", use_container_width=True):
+                if st.button("Set All SHIFT", width="stretch"):
                     st.session_state.day_config_df["Mode"] = C.ScheduleMode.SHIFT.value
                     st.rerun()
             with b2:
-                if st.button("Set All 24H", use_container_width=True):
+                if st.button("Set All 24H", width="stretch"):
                     st.session_state.day_config_df["Mode"] = C.ScheduleMode.FULL_24H.value
                     st.rerun()
 
-            st.session_state.day_config_df = st.data_editor(
+            # Capture return value to update state immediately if needed
+            edited_day_config = st.data_editor(
                 st.session_state.day_config_df,
                 column_config={
                     "Active": st.column_config.CheckboxColumn("Active?", width="small"),
@@ -61,10 +72,12 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
                     "Is_Weekend": st.column_config.CheckboxColumn("Wknd", width="small", disabled=True),
                 },
                 disabled=["Date", "Day", "Is_Weekend"],
-                use_container_width=True,
+                width="stretch",
                 height=300,
                 key="day_config_editor",
             )
+            # Sync edits back to session state
+            st.session_state.day_config_df = edited_day_config
 
         with col_cfg2:
             st.subheader("Bulk Constraint Upload")
@@ -89,6 +102,7 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
                                         st.session_state.roster_df.at[p, d_col] = str(val)
                                         count += 1
                         st.success(f"Merged {count} cells!")
+                        st.session_state.roster_version += 1  # Force refresh to show merged data
                         st.rerun()
                     else:
                         st.error("Uploaded file missing 'Name' column.")
@@ -99,6 +113,11 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
     roster_cols = {}
     for col_name in st.session_state.roster_df.columns:
         day_num = logic.get_day_num(col_name)
+
+        # Skip columns that aren't valid days (e.g. index/metadata cols if any slipped in)
+        if day_num <= 0 or day_num not in st.session_state.day_config_df.index:
+            continue
+
         mode = st.session_state.day_config_df.loc[day_num, "Mode"]
 
         opts = ["", "X", "24H", "S/B"] if mode == C.ScheduleMode.FULL_24H.value else ["", "X", "AM", "PM", "S/B"]
@@ -107,21 +126,24 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
             label=str(day_num), options=opts, width="small", required=False
         )
 
-    # --- DEFENSIVE CALLBACK FUNCTION ---
+    # --- CALLBACK: SYNC STATE BEFORE RERUN ---
+    # This prevents the 'double-entry' bug by ensuring state is updated
+    # immediately when the editor triggers a change event.
     def commit_edits():
-        edited = st.session_state["roster_editor"]
-        if isinstance(edited, pd.DataFrame):
-            edited.columns = edited.columns.astype(str)
-            st.session_state.roster_df = edited
+        if editor_key in st.session_state:
+            edited = st.session_state[editor_key]
+            # Verify we have a dataframe to avoid the dict error
+            if isinstance(edited, pd.DataFrame):
+                st.session_state.roster_df = edited
 
     # 3. ROSTER GRID RENDER
     st.data_editor(
         st.session_state.roster_df,
         column_config=roster_cols,
-        use_container_width=True,
+        width="stretch",
         height=500,
-        key="roster_editor",
-        on_change=commit_edits,
+        key=editor_key,  # Dynamic Key
+        on_change=commit_edits,  # Re-enabled callback
     )
 
     # 4. ACTIONS & STATS
@@ -130,34 +152,47 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
     act_c1, act_c2, act_c3 = st.columns([1, 1, 2])
 
     with act_c1:
-        if st.button("🧹 Clear Duties Only", help="Removes AM/PM/24H/SB. Keeps 'X'.", use_container_width=True):
-            st.session_state.roster_df = logic.clear_schedule(st.session_state.roster_df, clear_constraints=False)
-            st.rerun()
+        if st.button("🧹 Clear Duties Only", help="Removes AM/PM/24H/SB. Keeps 'X'.", width="stretch"):
+            if isinstance(st.session_state.roster_df, pd.DataFrame):
+                # on_change callback has already synced the state, so we can just call logic
+                st.session_state.roster_df = logic.clear_schedule(st.session_state.roster_df, clear_constraints=False)
+                st.session_state.roster_version += 1
+                st.rerun()
+            else:
+                st.error(f"Critical Error: Roster data is {type(st.session_state.roster_df)}, expected DataFrame.")
 
     with act_c2:
-        if st.button("💥 Clear All Cells", help="Resets entire grid to empty.", use_container_width=True):
-            st.session_state.roster_df = logic.clear_schedule(st.session_state.roster_df, clear_constraints=True)
-            st.rerun()
+        if st.button("💥 Clear All Cells", help="Resets entire grid to empty.", width="stretch"):
+            if isinstance(st.session_state.roster_df, pd.DataFrame):
+                st.session_state.roster_df = logic.clear_schedule(st.session_state.roster_df, clear_constraints=True)
+                st.session_state.roster_version += 1
+                st.rerun()
+            else:
+                st.error("Critical Error: Roster data corrupted.")
 
     with act_c3:
-        if st.button("🚀 GENERATE FILL", type="primary", use_container_width=True):
+        if st.button("🚀 GENERATE FILL", type="primary", width="stretch"):
             with st.spinner("Solving..."):
-                res = logic.run_solver(
-                    loaded_year,
-                    loaded_month,
-                    st.session_state.roster_df,
-                    st.session_state.day_config_df,
-                    st.session_state.config,
-                    st.session_state.prev_balance,
-                )
-                if res:
-                    sched, _ = res
-                    for (p, d), s in sched.items():
-                        st.session_state.roster_df.at[p, f"D{d}"] = s
-                    st.success("Solved successfully!")
-                    st.rerun()
+                if isinstance(st.session_state.roster_df, pd.DataFrame):
+                    res = logic.run_solver(
+                        loaded_year,
+                        loaded_month,
+                        st.session_state.roster_df,
+                        st.session_state.day_config_df,
+                        st.session_state.config,
+                        st.session_state.prev_balance,
+                    )
+                    if res:
+                        sched, _ = res
+                        for (p, d), s in sched.items():
+                            st.session_state.roster_df.at[p, f"D{d}"] = s
+                        st.session_state.roster_version += 1
+                        st.success("Solved successfully!")
+                        st.rerun()
+                    else:
+                        st.error("No solution found. Check constraints.")
                 else:
-                    st.error("No solution found. Check constraints.")
+                    st.error("Data error. Please reload grid.")
 
     st.divider()
 
@@ -184,8 +219,8 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
             data=xlsx,
             file_name=f"Duty_Plan_{loaded_year}_{loaded_month}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
         )
 
     with st.expander("Detailed Stats Table", expanded=True):
-        st.dataframe(stats_df, hide_index=True, use_container_width=True)
+        st.dataframe(stats_df, hide_index=True, width="stretch")

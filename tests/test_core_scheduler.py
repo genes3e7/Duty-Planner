@@ -1,5 +1,6 @@
 import pytest
 
+from app.constants import ScheduleMode
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
 from app.models.config import AppConfig
 
@@ -15,7 +16,7 @@ def basic_request():
         year=2025,
         month=1,
         fixed_assignments={},
-        day_modes={d: "SHIFT" for d in range(1, 32)},
+        day_modes={d: ScheduleMode.SHIFT.value for d in range(1, 32)},
         inactive_days=[],
     )
     return cfg, req

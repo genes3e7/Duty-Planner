@@ -1,6 +1,7 @@
 import calendar
 import datetime
 import os
+import tempfile
 
 import streamlit as st
 
@@ -14,11 +15,21 @@ def render_sidebar():
         st.title("Duty Planner")
 
         # Date Picker
+        # Logic: Default to NEXT month (as planning is usually future-facing)
+        today = datetime.date.today()
+        if today.month == 12:
+            next_month_val = datetime.date(today.year + 1, 1, 1)
+        else:
+            next_month_val = datetime.date(today.year, today.month + 1, 1)
+
+        # Allow user to stick to config if previously set, otherwise default to next month
         try:
-            # Safely get default date
-            default_date = datetime.date(st.session_state.config.year, st.session_state.config.month, 1)
-        except (ValueError, AttributeError):
-            default_date = datetime.date.today().replace(day=1)
+            # We prefer the current config if it differs from the "safe default" (which is usually today)
+            # But here we want to enforce next month as the 'smart' default.
+            # So we use next_month_val as the `value` argument directly.
+            default_date = next_month_val
+        except Exception:
+            default_date = next_month_val
 
         sel_date = st.date_input(
             "Select Planning Month",
@@ -36,7 +47,8 @@ def render_sidebar():
         st.divider()
 
         # Load Grid
-        if st.button("🔄 Load / Reset Grid", type="primary", use_container_width=True):
+        # Fixed: Replaced use_container_width=True with width="stretch" based on logs
+        if st.button("🔄 Load / Reset Grid", type="primary", width="stretch"):
             r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, st.session_state.config.personnel)
             st.session_state.roster_df = r_df
             st.session_state.day_config_df = d_df
@@ -52,11 +64,12 @@ def render_sidebar():
             st.caption("Upload previous month's Excel export to carry over points.")
             up_file = st.file_uploader("Upload .xlsx", type=["xlsx"])
             if up_file:
-                temp_path = "temp_import.xlsx"
-                try:
-                    with open(temp_path, "wb") as f:
-                        f.write(up_file.getbuffer())
+                # Use tempfile to prevent race conditions and conflicts
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                    tmp.write(up_file.getbuffer())
+                    temp_path = tmp.name
 
+                try:
                     prev = DataManager.load_previous_balance(temp_path)
                     st.session_state.prev_balance = prev
 

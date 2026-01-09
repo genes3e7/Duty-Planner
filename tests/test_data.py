@@ -26,7 +26,8 @@ def test_save_config_success():
     with patch("builtins.open", mock_open()) as m:
         success = DataManager.save_config(cfg)
         assert success is True
-        m.assert_called_once()
+        # Verify call arguments
+        m.assert_called_once_with("config.json", "w", encoding="utf-8")
 
 
 def test_load_previous_balance_parsing():
