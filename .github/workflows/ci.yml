@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 permissions:
-  contents: read
+  contents: write  # Needed for finalize job to push README updates
 
 jobs:
   compile-deps:
@@ -27,6 +27,7 @@ jobs:
         with:
           name: lockfiles
           path: requirements.txt
+          if-no-files-found: error
 
   test-matrix:
     needs: compile-deps
@@ -34,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"] # Removed 3.15
+        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
     - uses: actions/checkout@v4
@@ -48,12 +49,8 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: lockfiles
+        path: .
       continue-on-error: true
-      id: download-lockfiles
-
-    - name: Check Lockfile Download
-      if: steps.download-lockfiles.outcome != 'success'
-      run: echo "::warning::Lockfiles not downloaded, using repository files if available"
 
     - name: Install Dependencies
       run: |
@@ -62,25 +59,62 @@ jobs:
         else
           pip install -r requirements.in
         fi
-        # Install test dependencies
         pip install pytest pytest-cov
 
-    - name: Ruff Format & Fix
+    - name: Ruff Check (Linting)
       run: |
-        if [ -f requirements-dev.txt ]; then
-          pip install -r requirements-dev.txt
-        fi
-        ruff check . --fix
-        ruff format .
+        pip install ruff
+        # Run check only (no fix)
+        ruff check .
+        # Verify formatting without modifying
+        ruff format --check .
 
     - name: Run Tests
       run: pytest --cov=app tests/
 
+    - name: Create Success Marker
+      run: touch python_version_${{ matrix.python-version }}.txt
+
+    - name: Upload Success Marker
+      uses: actions/upload-artifact@v4
+      with:
+        name: success-markers
+        path: python_version_*.txt
+
   finalize:
-    needs: [compile-deps, test-matrix]
+    needs: [test-matrix]
     runs-on: ubuntu-latest
-    # Only run if compile succeeded AND matrix didn't fail
-    if: always() && needs.compile-deps.result == 'success' && needs.test-matrix.result != 'failure'
+    if: always() && needs.test-matrix.result != 'failure' && needs.test-matrix.result != 'cancelled'
     steps:
-      - name: Determine Supported Range
-        run: echo "Tests passed across Python 3.12-3.14"
+      - uses: actions/checkout@v4
+      
+      - name: Download Success Markers
+        uses: actions/download-artifact@v4
+        with:
+          name: success-markers
+          path: artifacts/
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Update README Badges
+        run: |
+          # Ensure tools dir exists if not present in repo (for this run)
+          mkdir -p tools
+          # Logic handled by script, assuming it exists or is created here.
+          # We will invoke the script.
+          python tools/update_readme.py artifacts/
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [[ `git status --porcelain README.md` ]]; then
+            git add README.md
+            git commit -m "docs: update python support badge"
+            git push
+          else
+            echo "No changes to README.md"
+          fi

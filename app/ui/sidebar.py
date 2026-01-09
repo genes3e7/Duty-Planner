@@ -22,14 +22,7 @@ def render_sidebar():
         else:
             next_month_val = datetime.date(today.year, today.month + 1, 1)
 
-        # Allow user to stick to config if previously set, otherwise default to next month
-        try:
-            # We prefer the current config if it differs from the "safe default" (which is usually today)
-            # But here we want to enforce next month as the 'smart' default.
-            # So we use next_month_val as the `value` argument directly.
-            default_date = next_month_val
-        except Exception:
-            default_date = next_month_val
+        default_date = next_month_val
 
         sel_date = st.date_input(
             "Select Planning Month",
@@ -47,7 +40,6 @@ def render_sidebar():
         st.divider()
 
         # Load Grid
-        # Fixed: Replaced use_container_width=True with width="stretch" based on logs
         if st.button("🔄 Load / Reset Grid", type="primary", width="stretch"):
             r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, st.session_state.config.personnel)
             st.session_state.roster_df = r_df
@@ -72,12 +64,13 @@ def render_sidebar():
                 try:
                     prev = DataManager.load_previous_balance(temp_path)
                     st.session_state.prev_balance = prev
+                    st.success(f"Imported {len(prev)} balance records!")
 
                     if st.button("Update Personnel List?"):
                         st.session_state.config.personnel = sorted(list(prev.keys()))
+                        st.success("Personnel list updated!")
                         st.rerun()
 
-                    st.success(f"Imported {len(prev)} records!")
                 except Exception as e:
                     st.error(f"Error: {e}")
                 finally:

@@ -27,8 +27,9 @@ def test_points_config_logic():
     assert pc.get_by_type("PM") == 2.0
     assert pc.get_by_type("24H") == 5.0
 
-    # Test invalid key returns 0.0
-    assert pc.get_by_type("INVALID_SHIFT") == 0.0
+    # Test invalid key raises ValueError (Updated to match new defensive logic)
+    with pytest.raises(ValueError, match="Unknown shift type"):
+        pc.get_by_type("INVALID_SHIFT")
 
 
 def test_config_serialization_roundtrip():

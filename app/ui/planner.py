@@ -1,10 +1,14 @@
 import calendar
+import logging
 
 import pandas as pd
 import streamlit as st
 
 from app import constants as C
 from app import logic
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 
 def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
@@ -24,15 +28,12 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
         st.rerun()
 
     # --- VERSION CONTROL FOR EDITOR ---
-    # We use a version number to dynamically change the key of the data_editor.
-    # This forces Streamlit to destroy and recreate the widget when we want a hard reset (like Clearing).
     if "roster_version" not in st.session_state:
         st.session_state.roster_version = 0
 
-    # Construct the dynamic key for this render cycle
+    # We use a versioned key to force a reset when external actions (Clear/Fill) happen
     editor_key = f"roster_editor_{st.session_state.roster_version}"
 
-    # HEADERS
     loaded_year, loaded_month = st.session_state.loaded_date
     loaded_month_name = calendar.month_name[loaded_month]
 
@@ -50,7 +51,6 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
         with col_cfg1:
             st.subheader("Day Settings")
             b1, b2 = st.columns(2)
-            # Fix: Using width="stretch" as requested by logs
             with b1:
                 if st.button("Set All SHIFT", width="stretch"):
                     st.session_state.day_config_df["Mode"] = C.ScheduleMode.SHIFT.value
@@ -60,7 +60,6 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
                     st.session_state.day_config_df["Mode"] = C.ScheduleMode.FULL_24H.value
                     st.rerun()
 
-            # Capture return value to update state immediately if needed
             edited_day_config = st.data_editor(
                 st.session_state.day_config_df,
                 column_config={
@@ -76,7 +75,6 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
                 height=300,
                 key="day_config_editor",
             )
-            # Sync edits back to session state
             st.session_state.day_config_df = edited_day_config
 
         with col_cfg2:
@@ -102,7 +100,7 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
                                         st.session_state.roster_df.at[p, d_col] = str(val)
                                         count += 1
                         st.success(f"Merged {count} cells!")
-                        st.session_state.roster_version += 1  # Force refresh to show merged data
+                        st.session_state.roster_version += 1
                         st.rerun()
                     else:
                         st.error("Uploaded file missing 'Name' column.")
@@ -114,37 +112,30 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
     for col_name in st.session_state.roster_df.columns:
         day_num = logic.get_day_num(col_name)
 
-        # Skip columns that aren't valid days (e.g. index/metadata cols if any slipped in)
         if day_num <= 0 or day_num not in st.session_state.day_config_df.index:
             continue
 
         mode = st.session_state.day_config_df.loc[day_num, "Mode"]
-
         opts = ["", "X", "24H", "S/B"] if mode == C.ScheduleMode.FULL_24H.value else ["", "X", "AM", "PM", "S/B"]
 
         roster_cols[col_name] = st.column_config.SelectboxColumn(
             label=str(day_num), options=opts, width="small", required=False
         )
 
-    # --- CALLBACK: SYNC STATE BEFORE RERUN ---
-    # This prevents the 'double-entry' bug by ensuring state is updated
-    # immediately when the editor triggers a change event.
-    def commit_edits():
-        if editor_key in st.session_state:
-            edited = st.session_state[editor_key]
-            # Verify we have a dataframe to avoid the dict error
-            if isinstance(edited, pd.DataFrame):
-                st.session_state.roster_df = edited
-
     # 3. ROSTER GRID RENDER
-    st.data_editor(
+    edited_df = st.data_editor(
         st.session_state.roster_df,
         column_config=roster_cols,
         width="stretch",
         height=500,
-        key=editor_key,  # Dynamic Key
-        on_change=commit_edits,  # Re-enabled callback
+        key=editor_key,
     )
+
+    # DIRECT SYNC: If the user edited the grid, we update the session state immediately.
+    # Added st.rerun() to prevent "alternate update" bugs by forcing a clean state reload.
+    if edited_df is not None and not edited_df.equals(st.session_state.roster_df):
+        st.session_state.roster_df = edited_df
+        st.rerun()
 
     # 4. ACTIONS & STATS
     st.divider()
@@ -152,9 +143,8 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
     act_c1, act_c2, act_c3 = st.columns([1, 1, 2])
 
     with act_c1:
-        if st.button("🧹 Clear Duties Only", help="Removes AM/PM/24H/SB. Keeps 'X'.", width="stretch"):
+        if st.button("🧹 Clear Duties Only", help="Removes AM/PM/24H. Keeps 'X' and 'S/B'.", width="stretch"):
             if isinstance(st.session_state.roster_df, pd.DataFrame):
-                # on_change callback has already synced the state, so we can just call logic
                 st.session_state.roster_df = logic.clear_schedule(st.session_state.roster_df, clear_constraints=False)
                 st.session_state.roster_version += 1
                 st.rerun()
@@ -196,6 +186,7 @@ def render_planner(sel_year: int, sel_month: int, sel_month_name: str):
 
     st.divider()
 
+    # Recalculate stats using the potentially just-updated 'st.session_state.roster_df'
     stats_df = logic.calculate_stats(
         st.session_state.roster_df,
         st.session_state.day_config_df,

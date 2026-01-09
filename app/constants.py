@@ -1,59 +1,31 @@
-"""
-constants.py
-
-Application Constants.
-"""
-
 from enum import Enum
-from typing import List
 
-APP_NAME: str = "Duty Scheduler Pro"
-APP_VERSION: str = "v3.0.0"
-LOG_FILE: str = "app.log"
+# --- FILE PATHS ---
+CONFIG_FILE = "config.json"
 
-APP_TITLE: str = f"{APP_NAME} - {APP_VERSION}"
-APP_GEOMETRY: str = "1280x850"
-THEME_MODE: str = "Light"
-THEME_COLOR: str = "blue"
-
-CONFIG_FILE: str = "config.json"
-EXCEL_SHEET_TITLE: str = "Duty Plan"
-EXCEL_HEADERS_STATIC: List[str] = ["Name"]
-EXCEL_HEADERS_SUFFIX: List[str] = ["Brought Fwd", "Month Pts", "Carry Over"]
+# --- UI CONSTANTS ---
+PAGE_TITLE = "Duty Planner"
+APP_TITLE = PAGE_TITLE  # Alias for integration tests
+PAGE_ICON = "📅"
 
 
-class ShiftType(str, Enum):
-    AM = "AM"
-    PM = "PM"
-    FULL_24H = "24H"
-    STANDBY = "S/B"
-    LEAVE = "X"
-    EMPTY = ""
+class ScheduleMode(Enum):
+    SHIFT = "SHIFT"  # AM / PM
+    FULL_24H = "24H"  # 24H Only
 
 
-class ScheduleMode(str, Enum):
-    SHIFT = "Shift"
-    FULL_24H = "24H"
+# --- EXCEL EXPORT STYLES ---
+EXCEL_SHEET_TITLE = "Duty Roster"
+COLOR_HEADER_BG = "FFCCE5FF"  # Light Blue
+COLOR_CONSTRAINT_BG = "FFFFFF00"  # Yellow for 'X'
 
+# --- HEADERS ---
+# The first column is always "Name"
+EXCEL_HEADERS_STATIC = ["Name"]
+# The last few columns are for stats
+EXCEL_HEADERS_SUFFIX = ["Brought Fwd", "Month Pts", "Carry Over"]
 
-ACTIVE_DUTIES: List[str] = [
-    ShiftType.AM,
-    ShiftType.PM,
-    ShiftType.FULL_24H,
-    ShiftType.STANDBY,
-]
-
-COLOR_HEADER_BG: str = "#EEEEEE"
-COLOR_PH_BG: str = "#FFEBEE"
-COLOR_CONSTRAINT_BG: str = "#E0E0E0"
-
-SHIFT_COLORS = {
-    ShiftType.EMPTY: ("#FFFFFF", "#000000"),
-    ShiftType.LEAVE: ("#E53935", "#FFFFFF"),
-    ShiftType.AM: ("#42A5F5", "#FFFFFF"),
-    ShiftType.PM: ("#1565C0", "#FFFFFF"),
-    ShiftType.FULL_24H: ("#8E24AA", "#FFFFFF"),
-    ShiftType.STANDBY: ("#FF9800", "#000000"),
-}
-
-SCORE_SCALE_FACTOR: int = 10
+# --- DUTY TYPES ---
+# These are the values that contribute to points (usually)
+# "X" is absence, not a duty.
+ACTIVE_DUTIES = ["AM", "PM", "24H", "S/B"]

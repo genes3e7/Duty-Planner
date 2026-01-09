@@ -70,13 +70,16 @@ class DataManager:
             # Fuzzy matching for columns
             for col in df.columns:
                 c_str = str(col).lower().strip()
-                if c_str == "name" or c_str.startswith("name ") or c_str.endswith(" name"):
-                    if name_col is not None:
-                        logger.warning(f"Multiple name column candidates: {name_col} and {col}")
+
+                # Prefer exact match; only accept partial if no exact match found
+                if c_str == "name":
+                    name_col = col  # Exact match takes priority
+                elif name_col is None and (c_str.startswith("name ") or c_str.endswith(" name")):
                     name_col = col
-                if "carry over" in c_str or "carryover" in c_str:
-                    if balance_col is not None:
-                        logger.warning(f"Multiple balance column candidates: {balance_col} and {col}")
+
+                if c_str == "carry over" or c_str == "carryover":
+                    balance_col = col  # Exact match takes priority
+                elif balance_col is None and ("carry over" in c_str or "carryover" in c_str):
                     balance_col = col
 
             if not name_col or not balance_col:

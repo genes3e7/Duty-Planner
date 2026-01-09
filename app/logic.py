@@ -47,6 +47,7 @@ def get_day_num(col_name: str) -> int:
 def get_holidays(year: int) -> holidays.HolidayBase:
     """
     Returns the holiday object for Singapore for the given year.
+    Note: Holiday calendar is hardcoded to Singapore (SG).
 
     Args:
         year (int): The year to fetch holidays for.
@@ -137,7 +138,7 @@ def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = 
         df_roster (pd.DataFrame): The current roster dataframe.
         clear_constraints (bool):
             - If True: Wipes EVERYTHING (including 'X').
-            - If False: Wipes only duties (AM, PM, 24H), keeping 'X'.
+            - If False: Wipes duties (AM, PM, 24H, S/B), keeping 'X'.
 
     Returns:
         pd.DataFrame: The modified dataframe (or None if input was None).
@@ -152,10 +153,7 @@ def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = 
         # Option 1: Clear Everything
         df[:] = ""
     else:
-        # Option 2: Clear Duties Only (Keep 'X')
-        # We switch back to explicit loop-based processing (using .iat)
-        # This is the most reliable way to handle "X" detection regardless
-        # of column data types or index uniqueness issues.
+        # Option 2: Clear Duties Only (Keep 'X' Only)
         rows, cols = df.shape
         for r in range(rows):
             for c in range(cols):
@@ -171,11 +169,11 @@ def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = 
                 if not s_val:
                     continue
 
-                # Robust check for X
+                # Robust check for X - ONLY Preserve X
                 if "X" in s_val:
                     df.iat[r, c] = "X"  # Preserve/Normalize
                 else:
-                    df.iat[r, c] = ""  # Clear
+                    df.iat[r, c] = ""  # Clear everything else (AM, PM, 24H, S/B)
 
     return df
 
@@ -208,6 +206,7 @@ def prepare_solver_request(
                     if day_idx > 0:
                         fixed_assignments[(person, day_idx)] = val
                 except ValueError:
+                    logger.debug(f"Could not parse day column '{day_col}' for {person}")
                     continue
 
     return SolverRequest(
@@ -245,9 +244,16 @@ def calculate_stats(
 ) -> pd.DataFrame:
     """
     Calculates point statistics for the current roster state.
-    Handles logic for multipliers vs additions for PH/Weekends.
+    Handles logic for multipliers vs additions for PH/Weekends/Friday/PH_Eve.
     """
     summary = []
+    raw_carry_overs = []
+
+    # Pre-fetch holidays to check for Eves
+    # We need year from config or infer from df_days date strings if possible,
+    # but strictly stats calculation should rely on config context or we need to pass year/month.
+    # Fortunately config has year/month.
+    sg_holidays = get_holidays(config.year)
 
     for person in config.personnel:
         bf = prev_balance.get(person, 0.0)
@@ -273,24 +279,78 @@ def calculate_stats(
                     is_ph = df_days.loc[day_idx, "Is_PH"]
                     is_weekend = df_days.loc[day_idx, "Is_Weekend"]
 
-                    base = config.points.get_by_type(val)
+                    # Logic for Friday & PH Eve
+                    # We reconstruct the date object
+                    try:
+                        current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
+                        is_friday = current_date.dayofweek == 4  # 0=Mon, 4=Fri
 
-                    # Logic: Apply PH rule first, else apply Weekend rule
+                        # PH Eve Check: Is the NEXT day a PH?
+                        next_day = current_date + pd.Timedelta(days=1)
+                        is_ph_eve = next_day in sg_holidays
+                    except Exception:
+                        is_friday = False
+                        is_ph_eve = False
+
+                    try:
+                        base = config.points.get_by_type(val)
+                    except ValueError:
+                        base = 0.0
+
+                    # --- POINT MULTIPLIER HIERARCHY ---
+                    # Logic: Apply highest priority rule first? Or apply all matching?
+                    # Usually mutually exclusive logic is safer.
+                    # Priority: PH > PH Eve > Friday > Weekend (Standard)
+
+                    multiplier = 1.0
+                    adder = 0.0
+
+                    # We determine the active rule for this day
                     if is_ph:
                         if config.points.ph_is_multiplier:
-                            base = base * config.points.ph_multiplier
+                            multiplier = config.points.ph_multiplier
                         else:
-                            base = base + config.points.ph_multiplier
+                            adder = config.points.ph_multiplier
+                    elif is_ph_eve:  # New Rule
+                        if config.points.ph_eve_is_multiplier:
+                            multiplier = config.points.ph_eve_multiplier
+                        else:
+                            adder = config.points.ph_eve_multiplier
+                    elif is_friday:  # New Rule
+                        if config.points.friday_is_multiplier:
+                            multiplier = config.points.friday_multiplier
+                        else:
+                            adder = config.points.friday_multiplier
                     elif is_weekend:
                         if config.points.weekend_is_multiplier:
-                            base = base * config.points.weekend_multiplier
+                            multiplier = config.points.weekend_multiplier
                         else:
-                            base = base + config.points.weekend_multiplier
+                            adder = config.points.weekend_multiplier
 
-                    current_pts += base
+                    # Apply
+                    current_pts += (base * multiplier) + adder
 
-        summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Carry Over": bf + current_pts})
-    return pd.DataFrame(summary)
+        raw_total = bf + current_pts
+        summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})
+        raw_carry_overs.append(raw_total)
+
+    # 2. Find Minimum to Normalize
+    min_carry = min(raw_carry_overs) if raw_carry_overs else 0.0
+
+    # 3. Second Pass: Build Final DataFrame with Normalized Carry Over
+    final_stats = []
+    for record in summary:
+        record["Carry Over"] = record["Raw Total"] - min_carry
+        final_stats.append(
+            {
+                "Name": record["Name"],
+                "Brought Fwd": record["Brought Fwd"],
+                "Month Pts": record["Month Pts"],
+                "Carry Over": record["Carry Over"],
+            }
+        )
+
+    return pd.DataFrame(final_stats)
 
 
 def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, config: AppConfig) -> bytes:
@@ -320,6 +380,10 @@ def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, confi
     # Styles
     fill_header = PatternFill("solid", fgColor=C.COLOR_HEADER_BG.replace("#", ""))
     fill_x = PatternFill("solid", fgColor=C.COLOR_CONSTRAINT_BG.replace("#", ""))
+    fill_24h = PatternFill("solid", fgColor="FF99CCFF")  # Light Blue
+    fill_am = PatternFill("solid", fgColor="FFFFCC99")  # Light Orange
+    fill_pm = PatternFill("solid", fgColor="FFCC99FF")  # Light Purple
+    fill_sb = PatternFill("solid", fgColor="FFCCFFCC")  # Light Green
 
     # Fix: Define reuseable Side to keep line length under 120 chars
     thin_side = Side(style="thin")
@@ -332,8 +396,18 @@ def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, confi
             if cell.row == 1:
                 cell.fill = fill_header
                 cell.font = Font(bold=True)
-            if cell.value == "X":
+
+            val_str = str(cell.value).upper() if cell.value else ""
+            if val_str == "X":
                 cell.fill = fill_x
+            elif val_str == "24H":
+                cell.fill = fill_24h
+            elif val_str == "AM":
+                cell.fill = fill_am
+            elif val_str == "PM":
+                cell.fill = fill_pm
+            elif val_str == "S/B":
+                cell.fill = fill_sb
 
     wb.save(output)
     return output.getvalue()

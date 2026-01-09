@@ -1,4 +1,7 @@
+import json
 from unittest.mock import mock_open, patch
+
+import pytest
 
 from app.core.data import DataManager
 from app.models.config import AppConfig
@@ -21,7 +24,7 @@ def test_load_config_corrupted_file():
 
 
 def test_save_config_success():
-    """Test successful save returns True."""
+    """Test successful save returns True and writes correct content."""
     cfg = AppConfig.default()
     with patch("builtins.open", mock_open()) as m:
         success = DataManager.save_config(cfg)
@@ -29,10 +32,15 @@ def test_save_config_success():
         # Verify call arguments
         m.assert_called_once_with("config.json", "w", encoding="utf-8")
 
+        # Verify JSON was written
+        written_data = "".join(call.args[0] for call in m().write.call_args_list)
+        parsed = json.loads(written_data)
+        assert "personnel" in parsed
+        assert len(parsed["personnel"]) == 20
+
 
 def test_load_previous_balance_parsing():
     """Test loading balance from an Excel file mock."""
-    # Create a dummy dataframe matching the expected format
     import pandas as pd
 
     mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "Carry Over": [10.5, 5.0], "Other": [1, 2]})
@@ -42,3 +50,24 @@ def test_load_previous_balance_parsing():
         assert balance["Alice"] == 10.5
         assert balance["Bob"] == 5.0
         assert "Charlie" not in balance
+
+
+def test_load_previous_balance_missing_columns():
+    """Test that missing required columns raises ValueError."""
+    import pandas as pd
+
+    mock_df = pd.DataFrame({"Other": ["Alice"], "Data": [10.5]})
+    with patch("pandas.read_excel", return_value=mock_df):
+        with pytest.raises(ValueError, match="Could not find"):
+            DataManager.load_previous_balance("dummy.xlsx")
+
+
+def test_load_previous_balance_skips_invalid_values():
+    """Test that non-numeric balance values are skipped."""
+    import pandas as pd
+
+    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "Carry Over": [10.5, "invalid"]})
+    with patch("pandas.read_excel", return_value=mock_df):
+        balance = DataManager.load_previous_balance("dummy.xlsx")
+        assert balance["Alice"] == 10.5
+        assert "Bob" not in balance
