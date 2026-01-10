@@ -96,5 +96,6 @@ all_versions.txt
 sorted_versions.txt
 
 # User Configuration
+config.json.tmp
 # (Uncomment if you want to keep your local config private)
 # config.json
