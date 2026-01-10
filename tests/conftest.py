@@ -1,19 +1,28 @@
+"""
+tests/conftest.py
+
+Shared Pytest configuration and fixtures.
+Provides common objects like default AppConfig and mock data for tests.
+"""
+
+import os
+import sys
+
 import pytest
+
+# Ensure 'app' module is importable from tests
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.models.config import AppConfig
 
 
 @pytest.fixture
-def default_config():
-    """Returns a standard AppConfig for testing."""
-    cfg = AppConfig.default()
-    cfg.personnel = ["Alice", "Bob", "Charlie"]
-    return cfg
+def default_config() -> AppConfig:
+    """
+    Fixture providing a default AppConfig instance.
+    Useful for tests needing a standard configuration state.
 
-
-@pytest.fixture
-def mock_roster_data(default_config):
-    """Returns a tuple of (RosterDF, DayDF) populated for Jan 2025."""
-    from app.logic import generate_empty_schedule
-
-    return generate_empty_schedule(2025, 1, default_config.personnel)
+    Returns:
+        AppConfig: A fresh configuration object with default values.
+    """
+    return AppConfig.default()

@@ -1,32 +1,61 @@
+"""
+app/models/config.py
+
+Defines the data structures for application configuration using Pydantic.
+Includes validation logic to ensure configuration integrity (defensive coding).
+"""
+
 import datetime
 import logging
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
 
 class ConstraintsConfig(BaseModel):
+    """
+    Configuration for solver constraints and rules.
+    """
+
     personnel_needed_per_shift: Dict[str, int] = Field(default_factory=lambda: {"AM": 1, "PM": 1, "24H": 1})
-    standby_per_day: int = 1
-    max_consecutive_duties: int = 3
-    solver_timeout_seconds: float = 10.0
+    """Number of people required for each shift type."""
+
+    standby_per_day: int = Field(1, ge=0)
+    """Number of standby (S/B) personnel required per day."""
+
+    max_consecutive_duties: int = Field(3, ge=1)
+    """Maximum number of consecutive days a person can work before a break."""
+
+    solver_timeout_seconds: float = Field(10.0, gt=0)
+    """Maximum time in seconds the solver is allowed to run."""
+
+    @field_validator("personnel_needed_per_shift")
+    @classmethod
+    def validate_needs(cls, v: Dict[str, int]) -> Dict[str, int]:
+        """Ensures manpower requirements are non-negative."""
+        for key, val in v.items():
+            if val < 0:
+                raise ValueError(f"Personnel needed for '{key}' cannot be negative.")
+        return v
 
 
 class PointsConfig(BaseModel):
-    AM: float = 1.0
-    PM: float = 1.0
-    FULL_24H: float = Field(2.0, serialization_alias="24H", validation_alias="24H")
-    # S/B points are usually 0, but can be configured if needed.
-    # If not present in config JSON, defaults will be used.
-    # Note: 'S/B' key handling depends on how it's passed.
+    """
+    Configuration for the point scoring system.
+    """
 
-    ph_multiplier: float = 2.0
-    ph_eve_multiplier: float = 1.5
-    weekend_multiplier: float = 1.5
-    friday_multiplier: float = 1.0  # Default to 1.0 (no change) if not specified
+    AM: float = Field(1.0, ge=0)
+    PM: float = Field(1.0, ge=0)
+    FULL_24H: float = Field(2.0, ge=0, serialization_alias="24H", validation_alias="24H")
+    SB: float = Field(0.0, ge=0, serialization_alias="S/B", validation_alias="S/B")
+
+    ph_multiplier: float = Field(2.0, ge=0)
+    ph_eve_multiplier: float = Field(1.5, ge=0)
+    weekend_multiplier: float = Field(1.5, ge=0)
+    friday_multiplier: float = Field(1.0, ge=0)
 
     ph_is_multiplier: bool = True
     ph_eve_is_multiplier: bool = True
@@ -36,6 +65,18 @@ class PointsConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     def get_by_type(self, shift_type: str) -> float:
+        """
+        Retrieves the base point value for a specific shift type.
+
+        Args:
+            shift_type (str): The type of shift (AM, PM, 24H, S/B).
+
+        Returns:
+            float: The configured base points.
+
+        Raises:
+            ValueError: If the shift_type is unknown.
+        """
         if shift_type == "AM":
             return self.AM
         if shift_type == "PM":
@@ -43,12 +84,7 @@ class PointsConfig(BaseModel):
         if shift_type == "24H":
             return self.FULL_24H
         if shift_type == "S/B":
-            # Return 0.0 by default for S/B if not explicitly defined in fields,
-            # or add a field for it if needed. For now assuming 0.0 or handled by caller logic
-            # if explicit field missing.
-            # However, prompt implies generic handling.
-            # Let's return 0.0 safely.
-            return 0.0
+            return self.SB
 
         logger.error(f"Unknown shift type: {shift_type}")
         raise ValueError(f"Unknown shift type: '{shift_type}'. Expected 'AM', 'PM', '24H', or 'S/B'.")
@@ -61,7 +97,16 @@ class PointsConfig(BaseModel):
         holidays_obj: Optional[Any] = None,
     ) -> int:
         """
-        Centralized scoring logic. Returns SCALED integer points.
+        Calculates the weighted score for a duty on a specific date.
+
+        Args:
+            date_obj: The date of the duty.
+            shift_type: The type of duty (AM, PM, etc.).
+            scale: Scaling factor for integer arithmetic (default 1).
+            holidays_obj: Container supporting `in` operator for holiday checks.
+
+        Returns:
+            int: The calculated score multiplied by `scale` and rounded.
         """
         try:
             base = self.get_by_type(shift_type)
@@ -71,12 +116,10 @@ class PointsConfig(BaseModel):
         if base == 0:
             return 0
 
-        # Determine multipliers
         is_ph = date_obj in holidays_obj if holidays_obj else False
         is_weekend = date_obj.weekday() >= 5  # 5=Sat, 6=Sun
         is_friday = date_obj.weekday() == 4
 
-        # PH Eve Check
         is_ph_eve = False
         if holidays_obj:
             next_day = date_obj + datetime.timedelta(days=1)
@@ -107,26 +150,58 @@ class PointsConfig(BaseModel):
             else:
                 adder = self.weekend_multiplier
 
-        # Calculate scaled integer
         final_val = ((base * multiplier) + adder) * scale
         return int(round(final_val))
 
 
 class AppConfig(BaseModel):
-    year: int = 2025
-    month: int = 1
+    """
+    Root configuration object for the application.
+    Aggregates personnel lists, constraints, and point settings.
+    """
+
+    year: int = Field(2025, ge=2000, le=2100)
+    """Year for the roster planning."""
+
+    month: int = Field(1, ge=1, le=12)
+    """Month for the roster planning (1-12)."""
+
     personnel: List[str] = Field(default_factory=list)
+    """List of staff names available for duties."""
+
     constraints: ConstraintsConfig = Field(default_factory=ConstraintsConfig)
+    """Solver constraint settings."""
+
     points: PointsConfig = Field(default_factory=PointsConfig)
+    """Point calculation settings."""
 
     @classmethod
-    def default(cls):
+    def default(cls) -> "AppConfig":
+        """
+        Creates a default configuration instance with dummy data.
+
+        Returns:
+            AppConfig: A pre-populated configuration object.
+        """
         fake_names = [f"Staff {i:02d}" for i in range(1, 21)]
         return cls(personnel=fake_names)
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Exports the configuration to a dictionary suitable for JSON serialization.
+        Uses aliases (e.g., '24H' instead of 'FULL_24H').
+        """
         return self.model_dump(by_alias=True)
 
     @classmethod
-    def from_dict(cls, data: Dict):
+    def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
+        """
+        Creates a configuration instance from a dictionary.
+
+        Args:
+            data (Dict[str, Any]): Dictionary data (e.g., loaded from JSON).
+
+        Returns:
+            AppConfig: The validated configuration object.
+        """
         return cls.model_validate(data)

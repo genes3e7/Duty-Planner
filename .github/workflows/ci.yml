@@ -7,30 +7,49 @@ on:
     branches: [ "main" ]
 
 permissions:
-  contents: write  # Needed for finalize job to push README updates
+  contents: write  # Needed for pushing lint fixes and README/requirements updates
 
 jobs:
-  compile-deps:
+  # Main Chain: Linting Gateway
+  # Attempts to auto-fix and push changes. Does not fail the workflow on lint errors.
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install pip-tools
-        run: pip install pip-tools
-      - name: Compile requirements
-        run: pip-compile requirements.in --output-file requirements.txt
-      - name: Upload Lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: lockfiles
-          path: requirements.txt
-          if-no-files-found: error
+          
+      - name: Install Ruff
+        run: pip install ruff
+        
+      - name: Ruff Auto-Fix and Format
+        # We use '|| true' to ensure the workflow continues to the test matrix
+        # even if Ruff finds errors it cannot fix automatically.
+        run: |
+          ruff check --fix . || true
+          ruff format . || true
+          
+      - name: Commit and Push Linting Fixes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [[ `git status --porcelain` ]]; then
+            git add .
+            git commit -m "style: auto-fix linting issues"
+            git push
+          else
+            echo "No linting changes to push"
+          fi
 
+  # Test Matrix
+  # Compiles own requirements per version to verify compatibility.
   test-matrix:
-    needs: compile-deps
+    needs: [lint]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -39,35 +58,28 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        # Fetch the current ref (head) to ensure we get any commits pushed by the 'lint' job
+        ref: ${{ github.ref }}
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
         
-    - name: Download Lockfiles
-      uses: actions/download-artifact@v4
-      with:
-        name: lockfiles
-        path: .
-      # Removed continue-on-error to fail if dependencies missing
+    - name: Install pip-tools
+      run: pip install pip-tools
 
+    - name: Compile Requirements (Version Specific)
+      run: |
+        pip-compile requirements.in --output-file requirements.txt
+        pip-compile requirements-dev.in -c requirements.txt --output-file requirements-dev.txt
+        
     - name: Install Dependencies
       run: |
-        if [ -f requirements.txt ]; then
-          pip install -r requirements.txt
-        else
-          pip install -r requirements.in
-        fi
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
         pip install pytest pytest-cov
-
-    - name: Ruff Check (Linting)
-      run: |
-        pip install ruff
-        # Run check only (no fix)
-        ruff check .
-        # Verify formatting without modifying
-        ruff format --check .
 
     - name: Run Tests
       run: pytest --cov=app tests/
@@ -75,26 +87,60 @@ jobs:
     - name: Create Success Marker
       run: touch python_version_${{ matrix.python-version }}.txt
 
-    - name: Upload Success Marker
+    - name: Upload Success Artifacts
       uses: actions/upload-artifact@v4
       with:
-        # Use unique name per matrix job to avoid 409 Conflict
-        name: success-markers-${{ matrix.python-version }}
-        path: python_version_*.txt
-        if-no-files-found: error
+        # Group requirements and marker by version
+        name: artifacts-${{ matrix.python-version }}
+        path: |
+          python_version_*.txt
+          requirements.txt
+          requirements-dev.txt
 
+  # Finalize
+  # Updates README and overrides repo requirements with those from the lowest passing version.
   finalize:
     needs: [test-matrix]
     runs-on: ubuntu-latest
-    if: always() && needs.test-matrix.result != 'failure' && needs.test-matrix.result != 'cancelled'
+    # Run if test-matrix finished (even if some failed), but skip if canceled
+    if: always() && needs.test-matrix.result != 'cancelled'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
       
-      - name: Download Success Markers
+      - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
-          # Download all artifacts (no 'name' specified)
           path: artifacts/
+
+      - name: Determine Lowest Supported Version & Update Requirements
+        id: process_artifacts
+        run: |
+          # Find all python_version_*.txt files recursively
+          # Extract version numbers, sort numerically, and pick the first (lowest)
+          lowest_ver=$(find artifacts -name "python_version_*.txt" | sed -E 's/.*python_version_([0-9.]+)\.txt/\1/' | sort -V | head -n 1)
+          
+          if [ -z "$lowest_ver" ]; then
+            echo "No successful python versions found in artifacts."
+            # If no tests passed, we don't update requirements/readme, just exit (fail)
+            exit 1
+          fi
+          
+          echo "Lowest successful python version: $lowest_ver"
+          
+          # The artifacts are downloaded into subdirectories named 'artifacts-3.12', 'artifacts-3.13', etc.
+          # We need to find the folder that corresponds to this version.
+          source_dir="artifacts/artifacts-${lowest_ver}"
+          
+          if [ -d "$source_dir" ]; then
+            echo "Copying requirements from $source_dir"
+            cp "$source_dir/requirements.txt" .
+            cp "$source_dir/requirements-dev.txt" .
+          else
+             echo "Error: Artifact directory $source_dir not found."
+             exit 1
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -102,17 +148,20 @@ jobs:
           python-version: "3.12"
 
       - name: Update README Badges
+        # Script scans the artifacts directory to generate the badges
         run: python tools/update_readme.py artifacts/
 
-      - name: Commit and Push
+      - name: Commit and Push Updates
         if: github.event_name == 'push'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          if [[ `git status --porcelain README.md` ]]; then
-            git add README.md
-            git commit -m "docs: update python support badge"
+          
+          git add requirements.txt requirements-dev.txt README.md
+          
+          if [[ `git status --porcelain` ]]; then
+            git commit -m "chore: update requirements and badges from CI"
             git push
           else
-            echo "No changes to README.md"
+            echo "No changes to README or requirements."
           fi

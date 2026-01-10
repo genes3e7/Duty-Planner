@@ -1,7 +1,14 @@
+"""
+app/core/data.py
+
+Handles persistent data storage and retrieval.
+Responsible for loading/saving JSON configurations and importing Excel history.
+"""
+
 import json
 import logging
 import os
-from typing import Dict
+from typing import Dict, Optional
 
 import pandas as pd
 
@@ -13,104 +20,116 @@ logger = logging.getLogger(__name__)
 
 class DataManager:
     """
-    Handles all persistence logic (Loading/Saving files).
-    Separates file I/O from the application logic.
+    Static utility class for file I/O operations.
     """
 
     @staticmethod
     def load_config(filepath: str = C.CONFIG_FILE) -> AppConfig:
         """
         Loads the application configuration from a JSON file.
-        Returns a default configuration if the file is missing or corrupted.
+
+        If the file does not exist or is corrupted, a default configuration
+        is generated and returned (safe fallback).
+
+        Args:
+            filepath (str): Path to the JSON config file.
+
+        Returns:
+            AppConfig: The loaded or default configuration object.
         """
         if not os.path.exists(filepath):
+            logger.warning(f"Config file not found at {filepath}. Using defaults.")
             return AppConfig.default()
 
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return AppConfig.model_validate(data)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Config file corrupted (invalid JSON): {e}")
-            return AppConfig.default()
-        except (OSError, IOError) as e:
-            logger.warning(f"Config file I/O error: {e}")
+            return AppConfig.from_dict(data)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse config file: {e}. Using defaults.")
             return AppConfig.default()
         except Exception as e:
-            logger.warning(f"Config load error: {e}")
+            logger.error(f"Unexpected error loading config: {e}. Using defaults.")
             return AppConfig.default()
 
     @staticmethod
     def save_config(config: AppConfig, filepath: str = C.CONFIG_FILE) -> bool:
         """
-        Saves the current configuration to disk.
-        Returns True if successful, False otherwise.
+        Saves the current configuration to a JSON file.
+
+        Uses a write-then-replace strategy (atomic write) to prevent data corruption
+        if the process crashes during write.
+
+        Args:
+            config (AppConfig): The configuration object to save.
+            filepath (str): Target file path.
+
+        Returns:
+            bool: True if save was successful, False otherwise.
         """
+        tmp_path = f"{filepath}.tmp"
         try:
-            data = config.model_dump(by_alias=True)
-            # Atomic write: write to temp file then replace
-            tmp_path = f"{filepath}.tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
-            os.replace(tmp_path, filepath)
+                json.dump(config.to_dict(), f, indent=4)
+
+            # Atomic replacement
+            if os.path.exists(filepath):
+                os.replace(tmp_path, filepath)
+            else:
+                os.rename(tmp_path, filepath)
+
+            logger.info("Configuration saved successfully.")
             return True
         except Exception as e:
             logger.error(f"Config save error: {e}")
+            # Clean up temp file if it exists
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
             return False
 
     @staticmethod
-    def load_previous_balance(filepath: str) -> Dict[str, float]:
+    def load_previous_balance(excel_path: Optional[str]) -> Dict[str, float]:
         """
-        Parses an Excel export file to extract 'Carry Over' points.
-        Uses heuristic matching to find the 'Name' and 'Carry Over' columns.
+        Imports 'Carry Over' points from a previous month's Excel roster.
 
         Args:
-            filepath (str): Path to the uploaded Excel file.
+            excel_path (Optional[str]): Path to the Excel file.
 
         Returns:
-            Dict[str, float]: Map of Name -> Points.
+            Dict[str, float]: A mapping of {Name: Carry Over Points}.
+                              Returns an empty dict if path is None or invalid.
+
+        Raises:
+            ValueError: If required columns ('Name', 'Carry Over') are missing.
         """
+        if not excel_path:
+            return {}
+
         try:
-            df = pd.read_excel(filepath)
+            df = pd.read_excel(excel_path)
 
-            name_col = None
-            balance_col = None
+            # Normalize column names for robustness
+            df.columns = [str(c).strip() for c in df.columns]
 
-            # Fuzzy matching for columns
-            for col in df.columns:
-                c_str = str(col).lower().strip()
+            if "Name" not in df.columns or "Carry Over" not in df.columns:
+                raise ValueError("Excel file must contain 'Name' and 'Carry Over' columns.")
 
-                # Prefer exact match; only accept partial if no exact match found
-                if c_str == "name":
-                    name_col = col  # Exact match takes priority
-                elif name_col is None and (c_str.startswith("name ") or c_str.endswith(" name")):
-                    name_col = col
-
-                if c_str == "carry over" or c_str == "carryover":
-                    balance_col = col  # Exact match takes priority
-                elif balance_col is None and ("carry over" in c_str or "carryover" in c_str):
-                    balance_col = col
-
-            if not name_col or not balance_col:
-                raise ValueError("Could not find 'Name' or 'Carry Over' columns.")
-
-            balance_map = {}
+            balance = {}
             for _, row in df.iterrows():
-                name = row[name_col]
-                val = row[balance_col]
-                if pd.notna(name) and pd.notna(val):
-                    try:
-                        # Normalize name
-                        clean_name = str(name).strip()
-                        # Robust numeric parsing
-                        val_num = pd.to_numeric(val, errors="coerce")
-                        if not pd.isna(val_num):
-                            balance_map[clean_name] = float(val_num)
-                    except ValueError:
-                        continue
+                name = row["Name"]
+                val = row["Carry Over"]
 
-            return balance_map
+                # Ensure value is numeric
+                try:
+                    float_val = float(val)
+                    balance[str(name)] = float_val
+                except (ValueError, TypeError):
+                    continue  # Skip invalid rows
 
+            return balance
         except Exception as e:
-            logger.error(f"Import error: {e}")
-            raise  # Re-raise to allow UI to show specific error
+            logger.error(f"Error loading previous balance: {e}")
+            raise

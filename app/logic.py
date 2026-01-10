@@ -73,7 +73,9 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
             - df_days: Configuration for each day (Is_PH, Mode, Active).
     """
     try:
-        num_days = pd.Period(f"{year}-{month}").days_in_month
+        # Create a period to determine days in month accurately
+        period = pd.Period(f"{year}-{month}")
+        num_days = period.days_in_month
     except ValueError:
         logger.warning(f"Invalid year/month ({year}/{month}), defaulting to 30 days")
         num_days = 30
@@ -85,7 +87,15 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
     day_columns = [f"D{d}" for d in range(1, num_days + 1)]
 
     for d in range(1, num_days + 1):
-        dt = pd.Timestamp(year=year, month=month, day=d)
+        try:
+            dt = pd.Timestamp(year=year, month=month, day=d)
+        except ValueError:
+            # This handles cases like Feb 30 if logic failed earlier,
+            # but mostly acts as a fallback for the try/except block above.
+            # If year/month invalid, we shouldn't reach here normally if num_days=30,
+            # but we need a valid date object.
+            dt = pd.Timestamp(year=year, month=1, day=d)
+
         is_ph = dt in sg_holidays
         # Default mode: 24H for holidays, Shift for normal days
         mode = C.ScheduleMode.FULL_24H.value if is_ph else C.ScheduleMode.SHIFT.value
@@ -283,12 +293,6 @@ def calculate_stats(
                         continue
 
                     # Use centralized helper for consistent scoring
-                    # We pass scale=1 because UI stats usually show raw float values, not integer-scaled values
-                    # If PointsConfig.calculate_score returns int scaled, we divide by scale?
-                    # The helper returns int(round(val * scale)).
-                    # So to get float: helper(..., scale=100) / 100.0 or just helper(..., scale=1) if it doesn't truncate?
-                    # PointsConfig.calculate_score returns int.
-                    # Let's use a large scale for precision then divide back.
                     SCALE_FACTOR = 100
                     scaled_pts = config.points.calculate_score(
                         date_obj=current_date, shift_type=val, scale=SCALE_FACTOR, holidays_obj=sg_holidays
@@ -350,7 +354,6 @@ def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, confi
     fill_pm = PatternFill("solid", fgColor="FFCC99FF")  # Light Purple
     fill_sb = PatternFill("solid", fgColor="FFCCFFCC")  # Light Green
 
-    # Fix: Define reuseable Side to keep line length under 120 chars
     thin_side = Side(style="thin")
     thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
 

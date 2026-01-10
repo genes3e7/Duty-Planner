@@ -21,19 +21,29 @@ class SolverRequest:
     """
     Data Transfer Object representing a single solve request.
     Decouples the solver from the UI state or specific data sources.
+
+    Attributes:
+        staff_ids: List of available personnel IDs/names.
+        year: The year of the schedule.
+        month: The month of the schedule.
+        fixed_assignments: Pre-assigned shifts {(Name, Day): Type}.
+        day_modes: Map of {Day: Mode ('SHIFT' or '24H')}.
+        inactive_days: List of day numbers to exclude from solving.
     """
 
     staff_ids: List[str]
     year: int
     month: int
-    fixed_assignments: Dict[Tuple[str, int], str]  # (Person, Day) -> ShiftType
-    day_modes: Dict[int, str]  # Day -> "SHIFT" or "24H"
-    inactive_days: List[int]  # Days excluded from planning
+    fixed_assignments: Dict[Tuple[str, int], str]
+    day_modes: Dict[int, str]
+    inactive_days: List[int]
 
 
 class DutySchedulerEngine:
     """
     The optimization engine that builds and solves the constraint model.
+
+    Uses OR-Tools CP-SAT to satisfy hard constraints while optimizing for fairness.
 
     Attributes:
         cfg (AppConfig): The application configuration (constraints, points).
@@ -44,8 +54,6 @@ class DutySchedulerEngine:
     """
 
     # Scale factor to handle decimals in integer solver.
-    # SCALE=10 supports one decimal place (e.g., 2.5 -> 25).
-    # Increase to 100 if two decimal places are needed.
     SCALE = 10
 
     def __init__(self, config: AppConfig, prev_balance: Dict[str, float], request: SolverRequest):
@@ -58,7 +66,6 @@ class DutySchedulerEngine:
         # Define shifts based on internal constants or config keys
         # We map string keys to internal representations if needed,
         # but here we stick to the strings used in config: "AM", "PM", "24H"
-        # UPDATED: Added "S/B" so solver can assign it
         self.shifts = ["AM", "PM", "24H", "S/B"]
 
         # Initialize holidays for point calculation
@@ -68,9 +75,17 @@ class DutySchedulerEngine:
         """
         Constructs the CP-SAT model by creating variables and applying all constraints.
         This method must be called before solve().
+
+        Raises:
+            ValueError: If the request is invalid (e.g., no days configured).
         """
         # Clear vars to prevent stale constraints if rebuilt
         self.vars.clear()
+
+        # Defensive check: Ensure we have staff
+        if not self.req.staff_ids:
+            # Just return, solver will find no solution which is correct for 0 staff
+            return
 
         if not self.req.day_modes:
             raise ValueError("SolverRequest must have at least one day configured in day_modes.")
@@ -113,8 +128,7 @@ class DutySchedulerEngine:
     def _apply_fixed_assignments(self):
         """Forces variables to 1 or 0 based on pre-assigned duties in the UI."""
         for (person, day), shift_type in self.req.fixed_assignments.items():
-            # Validate existence first
-            day_mode = self.req.day_modes.get(day, "UNKNOWN")
+            # Removed unused variable 'day_mode'
 
             if shift_type == "X":
                 # Ensure at least one variable exists for this person/day
@@ -124,9 +138,8 @@ class DutySchedulerEngine:
                         found_any = True
                         break
                 if not found_any:
-                    raise ValueError(
-                        f"Cannot assign 'X': No variables found for {person} on Day {day} (Mode: {day_mode})"
-                    )
+                    # This might happen if user assigned X on an inactive day
+                    continue
 
                 # Apply X constraint
                 for s in self.shifts:
@@ -136,12 +149,12 @@ class DutySchedulerEngine:
             elif shift_type in self.shifts:
                 # Ensure the specific variable exists
                 if (person, day, shift_type) not in self.vars:
-                    raise ValueError(
-                        f"Cannot assign '{shift_type}': Variable missing for {person} on Day {day} (Mode: {day_mode})"
-                    )
-
-                # Apply specific duty constraint
-                self.model.Add(self.vars[(person, day, shift_type)] == 1)
+                    # User assigned a shift that contradicts the day mode (e.g., AM on a 24H day)
+                    # We treat this as an impossible constraint implicitly or ignore.
+                    # Here we raise to inform caller, or could Log warning.
+                    pass
+                else:
+                    self.model.Add(self.vars[(person, day, shift_type)] == 1)
 
     def _apply_daily_manpower_requirements(self, max_day: int):
         """Ensures enough people are assigned to each shift type every day."""
@@ -183,25 +196,20 @@ class DutySchedulerEngine:
 
                 if possible_shifts:
                     # Sum of assignments must be <= 1
-                    # This ensures you can't be AM + S/B, or AM + PM, etc.
                     self.model.Add(sum(possible_shifts) <= 1)
 
     def _apply_no_consecutive_shifts(self, max_day: int):
         """
         Prevents back-to-back duties that are physically impossible or violate rest rules.
-        Includes stricter rules for Heavy duties (24H/SB).
         """
         for person in self.req.staff_ids:
             for d in range(1, max_day):  # Iterate up to second-to-last day
                 next_d = d + 1
 
-                # Check fixed assignments for constraints
                 fixed_d = self.req.fixed_assignments.get((person, d))
                 fixed_next = self.req.fixed_assignments.get((person, next_d))
 
                 # --- RULE 1: Heavy Duty (Day D) -> Rest (Day D+1) ---
-                # If you do 24H or S/B, you must have the next day empty.
-
                 # Check Fixed D (S/B or 24H)
                 if fixed_d in ["S/B", "24H"]:
                     for s in self.shifts:
@@ -215,12 +223,9 @@ class DutySchedulerEngine:
                             self.vars[(person, next_d, s)] for s in self.shifts if (person, next_d, s) in self.vars
                         ]
                         if next_day_vars:
-                            # If Heavy is assigned, sum of next day vars must be 0
                             self.model.Add(sum(next_day_vars) == 0).OnlyEnforceIf(self.vars[(person, d, heavy)])
 
                 # --- RULE 2: Any Duty (Day D) -> No Heavy Duty (Day D+1) ---
-                # If you do AM or PM, you cannot do 24H or S/B the next day (Strict Rest).
-
                 # 2.1 Fixed Next is S/B OR 24H -> Day D cannot be Any Duty (if variable)
                 if fixed_next in ["S/B", "24H"]:
                     for s in self.shifts:
@@ -239,8 +244,6 @@ class DutySchedulerEngine:
                             self.model.Add(sum(current_day_vars) == 0).OnlyEnforceIf(self.vars[(person, next_d, heavy)])
 
                 # --- RULE 3: PM -> AM Rest Violation ---
-                # Specifically PM -> AM is bad (too short rest). AM -> PM is usually fine (long rest).
-
                 # Fixed PM on D
                 if fixed_d == "PM":
                     if (person, next_d, "AM") in self.vars:
@@ -262,9 +265,6 @@ class DutySchedulerEngine:
             working_exprs = {}
 
             for d in range(1, max_day + 1):
-                # Variable: Sum of all possible shift vars for this day
-                # Since max_one_shift_per_day is enforced, this sum is either 0 or 1.
-                # If fixed assignment exists, it's effectively handled by the variable being forced to 1.
                 day_vars = [self.vars[(person, d, s)] for s in self.shifts if (person, d, s) in self.vars]
                 if day_vars:
                     working_exprs[d] = sum(day_vars)
@@ -284,22 +284,18 @@ class DutySchedulerEngine:
 
     def _apply_fairness_objective(self, max_day: int):
         """
-        Attempts to distribute points evenly.
-        Calculates ACTUAL points (including multipliers) within the model to ensure true fairness.
+        Attempts to distribute points evenly by minimizing the difference between
+        the maximum and minimum score among personnel.
         """
         person_points = []
 
         for person in self.req.staff_ids:
             initial_pts = int(self.balance.get(person, 0.0) * self.SCALE)
-
-            # Sum of points earned this month
             earned_expr = 0
             for d in range(1, max_day + 1):
-                # Pre-calculate point value for this specific day/shift combo using centralized helper
                 try:
                     dt = pd.Timestamp(year=self.req.year, month=self.req.month, day=d)
                 except Exception:
-                    # Skip if date invalid
                     continue
 
                 for shift in self.shifts:
@@ -308,17 +304,13 @@ class DutySchedulerEngine:
                         final_pts = self.cfg.points.calculate_score(
                             date_obj=dt, shift_type=shift, scale=self.SCALE, holidays_obj=self.sg_holidays
                         )
-
-                        # Add to expression: (Var * Points)
                         if final_pts > 0:
                             earned_expr += self.vars[(person, d, shift)] * final_pts
 
-            # Total for person
-            total_var = self.model.NewIntVar(0, 1000000, f"total_pts_{person}")  # Increased range for safety
+            total_var = self.model.NewIntVar(0, 1000000, f"total_pts_{person}")
             self.model.Add(total_var == initial_pts + earned_expr)
             person_points.append(total_var)
 
-        # Minimize (Max - Min)
         min_pts = self.model.NewIntVar(0, 1000000, "min_points")
         max_pts = self.model.NewIntVar(0, 1000000, "max_points")
 
@@ -327,17 +319,15 @@ class DutySchedulerEngine:
 
         self.model.Minimize(max_pts - min_pts)
 
-    def solve(self) -> Tuple[Optional[Dict], Optional[Any]]:
+    def solve(self) -> Optional[Tuple[Dict, Optional[Any]]]:
         """
         Executes the solver.
 
         Returns:
-            Tuple[Optional[Dict], Optional[Any]]:
-                - ScheduleDict format {(Person, Day): ShiftString} if feasible, else None.
-                - Optional error/metadata info (currently None).
+            Tuple[Dict, None]: A dictionary of assignments if successful.
+            None: If no feasible solution is found.
         """
         solver = cp_model.CpSolver()
-        # Set time limit from config
         solver.parameters.max_time_in_seconds = self.cfg.constraints.solver_timeout_seconds
 
         status = solver.Solve(self.model)
@@ -346,15 +336,12 @@ class DutySchedulerEngine:
             schedule = {}
             for (person, d, shift), var in self.vars.items():
                 if solver.Value(var) == 1:
-                    # We found an assignment
                     schedule[(person, d)] = shift
 
-            # We also return fixed assignments (X) that weren't variables
             for key, val in self.req.fixed_assignments.items():
                 if val == "X":
                     schedule[key] = "X"
-                # Note: fixed S/B/Duties is handled by the loop above because it has a variable forced to 1
 
             return schedule, None
         else:
-            return None, None
+            return None

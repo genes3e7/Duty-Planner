@@ -27,16 +27,22 @@ def test_save_config_success():
     """Test successful save returns True and writes correct content."""
     cfg = AppConfig.default()
     with patch("builtins.open", mock_open()) as m:
-        success = DataManager.save_config(cfg)
-        assert success is True
-        # Verify call arguments
-        m.assert_called_once_with("config.json", "w", encoding="utf-8")
+        # Also patch os.replace and os.remove to prevent actual file system ops that fail
+        # when the source file doesn't actually exist (because open was mocked)
+        with patch("os.replace") as mock_replace:
+            success = DataManager.save_config(cfg)
+            assert success is True
+            # Verify call arguments
+            m.assert_called_once_with("config.json.tmp", "w", encoding="utf-8")
 
-        # Verify JSON was written
-        written_data = "".join(call.args[0] for call in m().write.call_args_list)
-        parsed = json.loads(written_data)
-        assert "personnel" in parsed
-        assert len(parsed["personnel"]) == 20
+            # Verify JSON was written
+            written_data = "".join(call.args[0] for call in m().write.call_args_list)
+            parsed = json.loads(written_data)
+            assert "personnel" in parsed
+            assert len(parsed["personnel"]) == 20
+
+            # Verify replace was called
+            mock_replace.assert_called_once_with("config.json.tmp", "config.json")
 
 
 def test_load_previous_balance_parsing():
@@ -58,7 +64,9 @@ def test_load_previous_balance_missing_columns():
 
     mock_df = pd.DataFrame({"Other": ["Alice"], "Data": [10.5]})
     with patch("pandas.read_excel", return_value=mock_df):
-        with pytest.raises(ValueError, match="Could not find"):
+        # The regex string needs to match the actual error message raised in data.py
+        # Actual message: "Excel file must contain 'Name' and 'Carry Over' columns."
+        with pytest.raises(ValueError, match="must contain 'Name' and 'Carry Over'"):
             DataManager.load_previous_balance("dummy.xlsx")
 
 

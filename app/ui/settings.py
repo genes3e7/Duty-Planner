@@ -1,97 +1,83 @@
-import pandas as pd
+"""
+app/ui/settings.py
+
+Handles the configuration settings interface.
+Allows modifying personnel list, shift constraints, and point values.
+"""
+
 import streamlit as st
 
-from app import logic
-from app.core.data import DataManager
+from app.models.config import AppConfig
 
 
-def render_settings():
-    st.header("Settings")
-    cfg = st.session_state.config
+def render_settings(config: AppConfig):
+    """
+    Renders the settings page.
 
-    with st.form("settings_form"):
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("Manpower Requirements")
-            # Added max bounds to inputs
-            am_req = st.number_input("AM Req", 0, 20, value=cfg.constraints.personnel_needed_per_shift.get("AM", 1))
-            pm_req = st.number_input("PM Req", 0, 20, value=cfg.constraints.personnel_needed_per_shift.get("PM", 1))
-            h24_req = st.number_input("24H Req", 0, 20, value=cfg.constraints.personnel_needed_per_shift.get("24H", 1))
-            sb_req = st.number_input("Standby Req", 0, 20, value=cfg.constraints.standby_per_day)
+    Args:
+        config (AppConfig): The application configuration object to edit.
+    """
+    st.title("⚙️ Settings")
 
-        with c2:
-            st.subheader("Scoring Values")
-            pts_am = st.number_input("Pts: AM", value=cfg.points.AM)
-            pts_pm = st.number_input("Pts: PM", value=cfg.points.PM)
-            pts_24h = st.number_input("Pts: 24H", value=cfg.points.FULL_24H)
+    # 1. Personnel Management
+    st.subheader("Personnel")
+    st.caption("Manage the list of staff available for duties.")
 
-        st.divider()
-        st.subheader("Multipliers & Logic")
+    current_names = ", ".join(config.personnel)
+    new_names_str = st.text_area("Names (comma separated)", value=current_names, height=100)
+
+    # Update config immediately on change
+    if new_names_str != current_names:
+        new_list = [n.strip() for n in new_names_str.split(",") if n.strip()]
+        config.personnel = new_list
+        # We don't rerun here to allow bulk edits, but data binds to the object reference
+
+    st.markdown("---")
+
+    # 2. Shift Constraints
+    st.subheader("Shift Constraints")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        config.constraints.personnel_needed_per_shift["AM"] = st.number_input(
+            "AM Staff Needed", min_value=0, value=config.constraints.personnel_needed_per_shift.get("AM", 1)
+        )
+    with c2:
+        config.constraints.personnel_needed_per_shift["PM"] = st.number_input(
+            "PM Staff Needed", min_value=0, value=config.constraints.personnel_needed_per_shift.get("PM", 1)
+        )
+    with c3:
+        config.constraints.personnel_needed_per_shift["24H"] = st.number_input(
+            "24H Staff Needed", min_value=0, value=config.constraints.personnel_needed_per_shift.get("24H", 1)
+        )
+
+    st.markdown("---")
+
+    # 3. Point Values
+    st.subheader("Point Scoring Rules")
+
+    with st.expander("Base Points"):
+        p1, p2, p3, p4 = st.columns(4)
+        with p1:
+            config.points.AM = st.number_input("AM Pts", value=config.points.AM)
+        with p2:
+            config.points.PM = st.number_input("PM Pts", value=config.points.PM)
+        with p3:
+            config.points.FULL_24H = st.number_input("24H Pts", value=config.points.FULL_24H)
+        with p4:
+            config.points.SB = st.number_input("Standby Pts", value=config.points.SB)
+
+    with st.expander("Multipliers"):
         m1, m2 = st.columns(2)
         with m1:
-            wk_mult = st.number_input("Weekend Value", value=cfg.points.weekend_multiplier)
-            wk_is_mult = st.toggle("Weekend uses Multiplier?", value=cfg.points.weekend_is_multiplier)
-
+            config.points.ph_multiplier = st.number_input("PH Multiplier", value=config.points.ph_multiplier)
+            config.points.weekend_multiplier = st.number_input(
+                "Weekend Multiplier", value=config.points.weekend_multiplier
+            )
         with m2:
-            ph_mult = st.number_input("PH Value", value=cfg.points.ph_multiplier)
-            ph_is_mult = st.toggle(
-                "PH uses Multiplier?",
-                value=cfg.points.ph_is_multiplier,
-                help="On = Multiply base points. Off = Add this value to base points.",
+            config.points.ph_is_multiplier = st.checkbox("PH is Multiplier?", value=config.points.ph_is_multiplier)
+            config.points.weekend_is_multiplier = st.checkbox(
+                "Weekend is Multiplier?", value=config.points.weekend_is_multiplier
             )
 
-        st.subheader("Personnel")
-        ppl_str = st.text_area("Names (comma separated)", value=", ".join(cfg.personnel))
-
-        if st.form_submit_button("💾 Save Settings"):
-            # Preserve order while deduplicating
-            seen = set()
-            new_personnel = []
-            for name in ppl_str.split(","):
-                name = name.strip()
-                if name and name not in seen:
-                    seen.add(name)
-                    new_personnel.append(name)
-
-            # Validation: Ensure list is not empty
-            if not new_personnel:
-                st.error("Personnel list cannot be empty. Please add at least one name.")
-                return
-
-            # Work on a deep copy to prevent partial mutations on failure
-            cfg_copy = cfg.model_copy(deep=True)
-
-            # Update Configuration object on the copy
-            # Explicitly cast inputs to ensure correct types
-            cfg_copy.constraints.personnel_needed_per_shift["AM"] = int(am_req)
-            cfg_copy.constraints.personnel_needed_per_shift["PM"] = int(pm_req)
-            cfg_copy.constraints.personnel_needed_per_shift["24H"] = int(h24_req)
-            cfg_copy.constraints.standby_per_day = int(sb_req)
-
-            cfg_copy.points.AM = float(pts_am)
-            cfg_copy.points.PM = float(pts_pm)
-            cfg_copy.points.FULL_24H = float(pts_24h)
-
-            cfg_copy.points.weekend_multiplier = float(wk_mult)
-            cfg_copy.points.weekend_is_multiplier = wk_is_mult
-            cfg_copy.points.ph_multiplier = float(ph_mult)
-            cfg_copy.points.ph_is_multiplier = ph_is_mult
-
-            cfg_copy.personnel = new_personnel
-
-            # Sync Roster DataFrame with new names if it exists
-            new_roster_df = None
-            if "roster_df" in st.session_state and isinstance(st.session_state.roster_df, pd.DataFrame):
-                new_roster_df = logic.synchronize_roster_index(st.session_state.roster_df, new_personnel)
-
-            # Attempt Save
-            if DataManager.save_config(cfg_copy):
-                # Only update session state on success
-                st.session_state.config = cfg_copy
-                if new_roster_df is not None:
-                    st.session_state.roster_df = new_roster_df
-
-                st.success("Settings Saved! Roster updated.")
-                st.rerun()
-            else:
-                st.error("Failed to save settings. Check logs.")
+    st.info("Settings are applied in memory. Click 'Save Configuration' in the sidebar to persist to disk.")
