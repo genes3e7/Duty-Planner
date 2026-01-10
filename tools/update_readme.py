@@ -39,11 +39,8 @@ def update_readme(versions: List[str]):
         ver_str = f"{min_ver}_to_{max_ver}"
 
     # Regex to find: https://img.shields.io/badge/python-3.12_to_3.14-blue
-    # Captures:
-    # Group 1: prefix (https://img.shields.io/badge/python-)
-    # Group 2: current version string
-    # Group 3: suffix (-blue)
-    badge_pattern = r"(https://img\.shields\.io/badge/python-)([\d\._a-zA-Z]+)(-blue)"
+    # Tightened pattern
+    badge_pattern = r"(https://img\.shields\.io/badge/python-)([\d\._]+)(-blue)"
     replacement = f"\\g<1>{ver_str}\\g<3>"
 
     with open(readme_path, "r", encoding="utf-8") as f:

@@ -62,24 +62,24 @@ def render_settings():
             cfg_copy = cfg.model_copy(deep=True)
 
             # Update Configuration object on the copy
-            cfg_copy.constraints.personnel_needed_per_shift["AM"] = am_req
-            cfg_copy.constraints.personnel_needed_per_shift["PM"] = pm_req
-            cfg_copy.constraints.personnel_needed_per_shift["24H"] = h24_req
-            cfg_copy.constraints.standby_per_day = sb_req
+            # Explicitly cast inputs to ensure correct types
+            cfg_copy.constraints.personnel_needed_per_shift["AM"] = int(am_req)
+            cfg_copy.constraints.personnel_needed_per_shift["PM"] = int(pm_req)
+            cfg_copy.constraints.personnel_needed_per_shift["24H"] = int(h24_req)
+            cfg_copy.constraints.standby_per_day = int(sb_req)
 
-            cfg_copy.points.AM = pts_am
-            cfg_copy.points.PM = pts_pm
-            cfg_copy.points.FULL_24H = pts_24h
+            cfg_copy.points.AM = float(pts_am)
+            cfg_copy.points.PM = float(pts_pm)
+            cfg_copy.points.FULL_24H = float(pts_24h)
 
-            cfg_copy.points.weekend_multiplier = wk_mult
+            cfg_copy.points.weekend_multiplier = float(wk_mult)
             cfg_copy.points.weekend_is_multiplier = wk_is_mult
-            cfg_copy.points.ph_multiplier = ph_mult
+            cfg_copy.points.ph_multiplier = float(ph_mult)
             cfg_copy.points.ph_is_multiplier = ph_is_mult
 
             cfg_copy.personnel = new_personnel
 
-            # Sync Roster DataFrame with new names if it exists (on a copy logic if needed,
-            # but syncing returns a new DF anyway)
+            # Sync Roster DataFrame with new names if it exists
             new_roster_df = None
             if "roster_df" in st.session_state and isinstance(st.session_state.roster_df, pd.DataFrame):
                 new_roster_df = logic.synchronize_roster_index(st.session_state.roster_df, new_personnel)

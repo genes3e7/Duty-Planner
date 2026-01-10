@@ -41,7 +41,7 @@ The project is built on a clean separation of concerns using Python 3.12+:
 
 1. **Clone the Repository**
    ```ps1
-   git clone [https://github.com/genes3e7/duty-planner.git](https://github.com/genes3e7/duty-planner.git)
+   git clone https://github.com/genes3e7/duty-planner.git
    cd duty-planner
    ```
 2. **Create a Virtual Environment (Recommended)**

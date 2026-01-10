@@ -7,7 +7,7 @@ and constraints to find an optimal duty schedule.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import holidays
 import pandas as pd
@@ -69,6 +69,9 @@ class DutySchedulerEngine:
         Constructs the CP-SAT model by creating variables and applying all constraints.
         This method must be called before solve().
         """
+        # Clear vars to prevent stale constraints if rebuilt
+        self.vars.clear()
+
         if not self.req.day_modes:
             raise ValueError("SolverRequest must have at least one day configured in day_modes.")
 
@@ -110,17 +113,35 @@ class DutySchedulerEngine:
     def _apply_fixed_assignments(self):
         """Forces variables to 1 or 0 based on pre-assigned duties in the UI."""
         for (person, day), shift_type in self.req.fixed_assignments.items():
-            # Handle "X" (Leave) -> Force ALL solver shifts on this day to 0
+            # Validate existence first
+            day_mode = self.req.day_modes.get(day, "UNKNOWN")
+
             if shift_type == "X":
+                # Ensure at least one variable exists for this person/day
+                found_any = False
+                for s in self.shifts:
+                    if (person, day, s) in self.vars:
+                        found_any = True
+                        break
+                if not found_any:
+                    raise ValueError(
+                        f"Cannot assign 'X': No variables found for {person} on Day {day} (Mode: {day_mode})"
+                    )
+
+                # Apply X constraint
                 for s in self.shifts:
                     if (person, day, s) in self.vars:
                         self.model.Add(self.vars[(person, day, s)] == 0)
 
-            # Handle Specific Duty (AM/PM/24H/S/B) -> Force that specific var to 1, others to 0
-            # If the fixed assignment is a known shift type, we lock it.
             elif shift_type in self.shifts:
-                if (person, day, shift_type) in self.vars:
-                    self.model.Add(self.vars[(person, day, shift_type)] == 1)
+                # Ensure the specific variable exists
+                if (person, day, shift_type) not in self.vars:
+                    raise ValueError(
+                        f"Cannot assign '{shift_type}': Variable missing for {person} on Day {day} (Mode: {day_mode})"
+                    )
+
+                # Apply specific duty constraint
+                self.model.Add(self.vars[(person, day, shift_type)] == 1)
 
     def _apply_daily_manpower_requirements(self, max_day: int):
         """Ensures enough people are assigned to each shift type every day."""
@@ -274,45 +295,21 @@ class DutySchedulerEngine:
             # Sum of points earned this month
             earned_expr = 0
             for d in range(1, max_day + 1):
-                # Pre-calculate point value for this specific day/shift combo
-                # Check multiplier conditions (PH, Weekend)
+                # Pre-calculate point value for this specific day/shift combo using centralized helper
                 try:
                     dt = pd.Timestamp(year=self.req.year, month=self.req.month, day=d)
-                    is_ph = dt in self.sg_holidays
-                    is_weekend = dt.dayofweek >= 5
                 except Exception:
-                    # Fallback if date is invalid
-                    is_ph = False
-                    is_weekend = False
+                    # Skip if date invalid
+                    continue
 
                 for shift in self.shifts:
                     if (person, d, shift) in self.vars:
-                        # 1. Get Base Points
-                        try:
-                            base = self.cfg.points.get_by_type(shift)
-                        except ValueError:
-                            base = 0.0
-
-                        # 2. Apply Multiplier Logic (Must match app/logic.py)
-                        multiplier = 1.0
-                        adder = 0.0
-
-                        if is_ph:
-                            if self.cfg.points.ph_is_multiplier:
-                                multiplier = self.cfg.points.ph_multiplier
-                            else:
-                                adder = self.cfg.points.ph_multiplier
-                        elif is_weekend:
-                            if self.cfg.points.weekend_is_multiplier:
-                                multiplier = self.cfg.points.weekend_multiplier
-                            else:
-                                adder = self.cfg.points.weekend_multiplier
-
-                        # Calculate final integer points for this slot
-                        final_pts = int(((base * multiplier) + adder) * self.SCALE)
+                        # Use centralized scorer in PointsConfig
+                        final_pts = self.cfg.points.calculate_score(
+                            date_obj=dt, shift_type=shift, scale=self.SCALE, holidays_obj=self.sg_holidays
+                        )
 
                         # Add to expression: (Var * Points)
-                        # If Var is 0 (not assigned), adds 0. If 1, adds points.
                         if final_pts > 0:
                             earned_expr += self.vars[(person, d, shift)] * final_pts
 
@@ -330,12 +327,14 @@ class DutySchedulerEngine:
 
         self.model.Minimize(max_pts - min_pts)
 
-    def solve(self) -> Optional[Dict]:
+    def solve(self) -> Tuple[Optional[Dict], Optional[Any]]:
         """
         Executes the solver.
 
         Returns:
-            Optional[Dict]: ScheduleDict format {(Person, Day): ShiftString} if feasible, else None.
+            Tuple[Optional[Dict], Optional[Any]]:
+                - ScheduleDict format {(Person, Day): ShiftString} if feasible, else None.
+                - Optional error/metadata info (currently None).
         """
         solver = cp_model.CpSolver()
         # Set time limit from config
@@ -358,4 +357,4 @@ class DutySchedulerEngine:
 
             return schedule, None
         else:
-            return None
+            return None, None

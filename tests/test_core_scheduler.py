@@ -15,7 +15,8 @@ def basic_request():
         year=2025,
         month=1,
         fixed_assignments={},
-        day_modes={1: "SHIFT", 2: "SHIFT"},
+        # Fix raw string usage
+        day_modes={1: ScheduleMode.SHIFT.value, 2: ScheduleMode.SHIFT.value},
         inactive_days=[],
     )
     return cfg, req
@@ -58,9 +59,8 @@ def test_no_consecutive_24h_shifts():
     )
     sched, _ = result
 
-    # Check that day 2 is empty for A
-    assignments_d2_A = [k for k, v in sched.items() if k[0] == "A" and k[1] == 2 and v in ["AM", "PM", "24H", "S/B"]]
-    assert len(assignments_d2_A) == 0, "A should have no duties on day 2 after a 24H shift"
+    # Check that day 2 is empty for A (simplified assertion)
+    assert sched.get(("A", 2)) is None, "A should have no duties on day 2 after a 24H shift"
 
     # Check that day 2 is covered by someone else to prove D2 was active
     assignments_d2_any = [k for k, v in sched.items() if k[1] == 2]

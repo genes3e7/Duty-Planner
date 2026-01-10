@@ -9,7 +9,7 @@ It handles data transformation, safe parsing, and orchestrating the solving proc
 import io
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import holidays
 import pandas as pd
@@ -48,7 +48,6 @@ def get_holidays(year: int) -> holidays.HolidayBase:
     """
     Returns the holiday object for Singapore for the given year.
     Note: Holiday calendar is hardcoded to Singapore (SG).
-    Consider making country configurable via AppConfig in future.
 
     Args:
         year (int): The year to fetch holidays for.
@@ -111,7 +110,7 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
     return df_roster, df_days
 
 
-def synchronize_roster_index(df_roster: pd.DataFrame, new_personnel: List[str]) -> pd.DataFrame:
+def synchronize_roster_index(df_roster: Optional[pd.DataFrame], new_personnel: List[str]) -> Optional[pd.DataFrame]:
     """
     Reindexes the roster DataFrame to match a new list of personnel.
     Preserves existing data for names that match.
@@ -227,7 +226,7 @@ def run_solver(
     df_days: pd.DataFrame,
     config: AppConfig,
     prev_balance: Dict[str, float],
-) -> Optional[Tuple[Dict, List]]:
+) -> Optional[Tuple[Dict, Optional[Any]]]:
     """
     Orchestrates the solving process:
     1. Prepares the request.
@@ -245,7 +244,10 @@ def calculate_stats(
 ) -> pd.DataFrame:
     """
     Calculates point statistics for the current roster state.
-    Handles logic for multipliers vs additions for PH/Weekends/Friday/PH_Eve.
+    Handles logic for multipliers vs additions for PH/Weekends.
+
+    UPDATED: Normalizes 'Carry Over' by subtracting the minimum value.
+    This ensures that the displayed points stay small and relative.
     """
     summary = []
     raw_carry_overs = []
@@ -274,59 +276,24 @@ def calculate_stats(
 
                 val = df_roster.at[person, day_col]
                 if val in C.ACTIVE_DUTIES:
-                    is_ph = df_days.loc[day_idx, "Is_PH"]
-                    is_weekend = df_days.loc[day_idx, "Is_Weekend"]
-
-                    # Logic for Friday & PH Eve
-                    # We reconstruct the date object
+                    # Reconstruct date
                     try:
                         current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
-                        is_friday = current_date.dayofweek == 4  # 0=Mon, 4=Fri
-
-                        # PH Eve Check: Is the NEXT day a PH?
-                        next_day = current_date + pd.Timedelta(days=1)
-                        is_ph_eve = next_day in sg_holidays
                     except Exception:
-                        is_friday = False
-                        is_ph_eve = False
+                        continue
 
-                    try:
-                        base = config.points.get_by_type(val)
-                    except ValueError:
-                        base = 0.0
-
-                    # --- POINT MULTIPLIER HIERARCHY ---
-                    # Logic: Apply highest priority rule first? Or apply all matching?
-                    # Usually mutually exclusive logic is safer.
-                    # Priority: PH > PH Eve > Friday > Weekend (Standard)
-
-                    multiplier = 1.0
-                    adder = 0.0
-
-                    # We determine the active rule for this day
-                    if is_ph:
-                        if config.points.ph_is_multiplier:
-                            multiplier = config.points.ph_multiplier
-                        else:
-                            adder = config.points.ph_multiplier
-                    elif is_ph_eve:  # New Rule
-                        if config.points.ph_eve_is_multiplier:
-                            multiplier = config.points.ph_eve_multiplier
-                        else:
-                            adder = config.points.ph_eve_multiplier
-                    elif is_friday:  # New Rule
-                        if config.points.friday_is_multiplier:
-                            multiplier = config.points.friday_multiplier
-                        else:
-                            adder = config.points.friday_multiplier
-                    elif is_weekend:
-                        if config.points.weekend_is_multiplier:
-                            multiplier = config.points.weekend_multiplier
-                        else:
-                            adder = config.points.weekend_multiplier
-
-                    # Apply
-                    current_pts += (base * multiplier) + adder
+                    # Use centralized helper for consistent scoring
+                    # We pass scale=1 because UI stats usually show raw float values, not integer-scaled values
+                    # If PointsConfig.calculate_score returns int scaled, we divide by scale?
+                    # The helper returns int(round(val * scale)).
+                    # So to get float: helper(..., scale=100) / 100.0 or just helper(..., scale=1) if it doesn't truncate?
+                    # PointsConfig.calculate_score returns int.
+                    # Let's use a large scale for precision then divide back.
+                    SCALE_FACTOR = 100
+                    scaled_pts = config.points.calculate_score(
+                        date_obj=current_date, shift_type=val, scale=SCALE_FACTOR, holidays_obj=sg_holidays
+                    )
+                    current_pts += scaled_pts / SCALE_FACTOR
 
         raw_total = bf + current_pts
         summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})

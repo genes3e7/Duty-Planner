@@ -2,15 +2,8 @@
     "year": 2026,
     "month": 2,
     "personnel": [
-        "A",
-        "B",
-        "C",
-        "D",
-        "E",
-        "F",
-        "G",
-        "H",
-        "I"
+        "Zebra",
+        "Cobra"
     ],
     "constraints": {
         "personnel_needed_per_shift": {
@@ -26,14 +19,13 @@
         "AM": 1.0,
         "PM": 1.0,
         "24H": 1.0,
-        "S/B": 0.0,
         "ph_multiplier": 2.0,
-        "weekend_multiplier": 1.0,
         "ph_eve_multiplier": 1.5,
+        "weekend_multiplier": 1.0,
         "friday_multiplier": 1.5,
         "ph_is_multiplier": true,
-        "weekend_is_multiplier": false,
         "ph_eve_is_multiplier": true,
+        "weekend_is_multiplier": false,
         "friday_is_multiplier": true
     }
 }

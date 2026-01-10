@@ -48,8 +48,11 @@ class DataManager:
         """
         try:
             data = config.model_dump(by_alias=True)
-            with open(filepath, "w", encoding="utf-8") as f:
+            # Atomic write: write to temp file then replace
+            tmp_path = f"{filepath}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
+            os.replace(tmp_path, filepath)
             return True
         except Exception as e:
             logger.error(f"Config save error: {e}")
@@ -97,7 +100,12 @@ class DataManager:
                 val = row[balance_col]
                 if pd.notna(name) and pd.notna(val):
                     try:
-                        balance_map[str(name)] = float(val)
+                        # Normalize name
+                        clean_name = str(name).strip()
+                        # Robust numeric parsing
+                        val_num = pd.to_numeric(val, errors="coerce")
+                        if not pd.isna(val_num):
+                            balance_map[clean_name] = float(val_num)
                     except ValueError:
                         continue
 
