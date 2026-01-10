@@ -1,33 +1,28 @@
 """
 app/utils/logger.py
 
-Provides utility functions for configuring the application's logging system.
-This ensures consistent log formatting and output levels across all modules.
+Provides a centralized logging configuration.
 """
 
 import logging
 import sys
 
 
-def setup_logger(name: str = "app", level: int = logging.INFO) -> logging.Logger:
+def setup_logger(name: str = "app") -> logging.Logger:
     """
-    Configures and returns a logger instance with a standard format.
-
-    The logger is configured to output to stdout with a format including
-    timestamp, logger name, level, and message.
+    Configures and returns a logger instance.
 
     Args:
-        name (str): The name of the logger (usually __name__). Defaults to "app".
-        level (int): The logging severity level (e.g., logging.INFO, logging.DEBUG).
-                     Defaults to logging.INFO.
+        name (str): Name of the logger.
 
     Returns:
-        logging.Logger: A configured standard Python logger instance.
+        logging.Logger: Configured logger.
     """
     logger = logging.getLogger(name)
-    logger.setLevel(level)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False  # Prevent propagation to avoid duplicates
 
-    # Avoid adding multiple handlers if setup is called multiple times
+    # Check if handlers already exist to avoid duplicates
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")

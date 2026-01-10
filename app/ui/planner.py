@@ -153,7 +153,7 @@ def render_planner(config: AppConfig):
                 date_obj = pd.Timestamp(year=sel_year, month=sel_month, day=day_num)
                 day_str = date_obj.strftime("%a")  # Mon, Tue
                 label = f"{day_num} {day_str}"
-            except Exception:
+            except (ValueError, OverflowError):  # Specific exceptions
                 label = str(day_num)
 
             # Visual Indicators in Header

@@ -36,15 +36,17 @@
     "points": {
         "AM": 1.0,
         "PM": 1.0,
-        "24H": 1.0,
+        "24H": 2.0,
         "S/B": 0.0,
         "ph_multiplier": 2.0,
         "ph_eve_multiplier": 1.5,
-        "weekend_multiplier": 1.0,
-        "friday_multiplier": 1.5,
+        "weekend_multiplier": 1.5,
+        "friday_am_multiplier": 1.0,
+        "friday_pm_multiplier": 1.0,
         "ph_is_multiplier": true,
         "ph_eve_is_multiplier": true,
         "weekend_is_multiplier": true,
-        "friday_is_multiplier": true
+        "friday_am_is_multiplier": true,
+        "friday_pm_is_multiplier": true
     }
 }

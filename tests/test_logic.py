@@ -6,16 +6,10 @@ Includes boundary tests, error handling, and data transformation checks.
 """
 
 import pandas as pd
-import pytest
 
 from app import logic
-from app.models.config import AppConfig
 
-
-@pytest.fixture
-def default_config():
-    """Returns a fresh default AppConfig instance."""
-    return AppConfig.default()
+# Note: default_config fixture is available from conftest.py
 
 
 def test_get_day_num_valid():

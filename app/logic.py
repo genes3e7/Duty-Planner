@@ -25,17 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_day_num(col_name: str) -> int:
-    """
-    Safely extracts the day integer from a column string.
-
-    Args:
-        col_name (str): The column name (e.g., "D1", "D25").
-
-    Returns:
-        int: The day number (1-31), or 0 if parsing fails.
-    """
+    """Safely extracts the day integer from a column string."""
     try:
-        # Match exactly "D" followed by digits to be stricter
         match = re.match(r"^D(\d+)$", str(col_name))
         if match:
             return int(match.group(1))
@@ -45,35 +36,13 @@ def get_day_num(col_name: str) -> int:
 
 
 def get_holidays(year: int) -> holidays.HolidayBase:
-    """
-    Returns the holiday object for Singapore for the given year.
-    Note: Holiday calendar is hardcoded to Singapore (SG).
-
-    Args:
-        year (int): The year to fetch holidays for.
-
-    Returns:
-        holidays.HolidayBase: Object containing holiday dates.
-    """
+    """Returns the holiday object for Singapore for the given year."""
     return holidays.SG(years=year)
 
 
 def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Creates the initial empty DataFrames for the Roster and Day Configuration.
-
-    Args:
-        year (int): Year for the schedule.
-        month (int): Month for the schedule.
-        personnel (List[str]): List of staff names for row indices.
-
-    Returns:
-        Tuple[pd.DataFrame, pd.DataFrame]:
-            - df_roster: Grid with names as index and "D1"..."DN" as columns.
-            - df_days: Configuration for each day (Is_PH, Mode, Active).
-    """
+    """Creates the initial empty DataFrames for the Roster and Day Configuration."""
     try:
-        # Create a period to determine days in month accurately
         period = pd.Period(f"{year}-{month}")
         num_days = period.days_in_month
     except ValueError:
@@ -81,23 +50,16 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
         num_days = 30
 
     sg_holidays = get_holidays(year)
-
     day_data = []
-    # We use "D" prefix to enforce String type columns in Streamlit/Pandas
     day_columns = [f"D{d}" for d in range(1, num_days + 1)]
 
     for d in range(1, num_days + 1):
         try:
             dt = pd.Timestamp(year=year, month=month, day=d)
         except ValueError:
-            # This handles cases like Feb 30 if logic failed earlier,
-            # but mostly acts as a fallback for the try/except block above.
-            # If year/month invalid, we shouldn't reach here normally if num_days=30,
-            # but we need a valid date object.
             dt = pd.Timestamp(year=year, month=1, day=d)
 
         is_ph = dt in sg_holidays
-        # Default mode: 24H for holidays, Shift for normal days
         mode = C.ScheduleMode.FULL_24H.value if is_ph else C.ScheduleMode.SHIFT.value
 
         day_data.append(
@@ -121,69 +83,31 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
 
 
 def synchronize_roster_index(df_roster: Optional[pd.DataFrame], new_personnel: List[str]) -> Optional[pd.DataFrame]:
-    """
-    Reindexes the roster DataFrame to match a new list of personnel.
-    Preserves existing data for names that match.
-    Adds new rows for new names.
-    Removes rows for names that were removed.
-    """
+    """Reindexes the roster DataFrame to match a new list of personnel."""
     if df_roster is None:
         return None
-
-    # Reindex preserves existing labels and fills missing ones
-    # fill_value="" ensures new rows are empty strings, not NaN
     new_df = df_roster.reindex(index=new_personnel, fill_value="")
-
-    # Ensure no NaNs crept in
-    new_df = new_df.fillna("")
-
-    return new_df
+    return new_df.fillna("")
 
 
 def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = False) -> Optional[pd.DataFrame]:
-    """
-    Clears data from the roster grid.
-
-    Args:
-        df_roster (pd.DataFrame): The current roster dataframe.
-        clear_constraints (bool):
-            - If True: Wipes EVERYTHING (including 'X').
-            - If False: Wipes duties (AM, PM, 24H, S/B), keeping 'X'.
-
-    Returns:
-        pd.DataFrame: The modified dataframe (or None if input was None).
-    """
+    """Clears data from the roster grid."""
     if df_roster is None:
         return None
 
-    # Use a deep copy to ensure we have a totally clean reference
     df = df_roster.copy(deep=True)
 
     if clear_constraints:
-        # Option 1: Clear Everything
         df[:] = ""
     else:
-        # Option 2: Clear Duties Only (Keep 'X' Only)
-        rows, cols = df.shape
-        for r in range(rows):
-            for c in range(cols):
-                val = df.iat[r, c]
 
-                # Check for empty values
-                if pd.isna(val) or val is None or val == "":
-                    continue
+        def keep_x(val):
+            if isinstance(val, str) and val.strip().upper() == "X":
+                return "X"
+            return ""
 
-                # Normalize
-                s_val = str(val).strip().upper()
-
-                if not s_val:
-                    continue
-
-                # Robust check for X - ONLY Preserve X (Exact Match)
-                if s_val == "X":
-                    df.iat[r, c] = "X"  # Preserve
-                else:
-                    df.iat[r, c] = ""  # Clear everything else (AM, PM, 24H, S/B)
+        for col in df.columns:
+            df[col] = df[col].apply(keep_x)
 
     return df
 
@@ -193,30 +117,47 @@ def prepare_solver_request(
 ) -> SolverRequest:
     """
     Transforms the UI DataFrames into a clean SolverRequest object.
-    Parsing involves converting string columns ("D1") back to integers (1).
+    Includes calculation of specific point weights for every day/shift.
     """
     fixed_assignments = {}
     day_modes = {}
     inactive_days = []
+    shift_weights = {}
 
-    # Parse Day Configuration
+    valid_staff = set(config.personnel)
+    sg_holidays = get_holidays(year)
+
+    # Scale factor for integer arithmetic in solver (1.5 -> 150)
+    SCALE = 100
+
+    # 1. Parse Day Configuration & Calculate Weights
     for day_num, row in df_days.iterrows():
         if not row["Active"]:
             inactive_days.append(day_num)
         day_modes[day_num] = row["Mode"]
 
-    # Parse Roster Grid (Fixed Constraints)
+        # Calculate exact weight for this day based on date/multipliers
+        try:
+            current_date = pd.Timestamp(year=year, month=month, day=day_num)
+            for shift in ["AM", "PM", "24H", "S/B"]:
+                w = config.points.calculate_score(current_date, shift, scale=SCALE, holidays_obj=sg_holidays)
+                shift_weights[(day_num, shift)] = w
+        except ValueError:
+            pass
+
+    # 2. Parse Roster Grid (Fixed Constraints)
     for person in df_roster.index:
+        if person not in valid_staff:
+            continue
+
         for day_col in df_roster.columns:
             val = df_roster.at[person, day_col]
             if val:
-                # Convert "D1" -> 1
                 try:
                     day_idx = get_day_num(day_col)
                     if day_idx > 0:
                         fixed_assignments[(person, day_idx)] = val
                 except ValueError:
-                    logger.debug(f"Could not parse day column '{day_col}' for {person}")
                     continue
 
     return SolverRequest(
@@ -226,6 +167,7 @@ def prepare_solver_request(
         fixed_assignments=fixed_assignments,
         day_modes=day_modes,
         inactive_days=inactive_days,
+        shift_weights=shift_weights,
     )
 
 
@@ -237,32 +179,23 @@ def run_solver(
     config: AppConfig,
     prev_balance: Dict[str, float],
 ) -> Optional[Tuple[Dict, Optional[Any]]]:
-    """
-    Orchestrates the solving process:
-    1. Prepares the request.
-    2. Initializes the engine.
-    3. Runs the solver.
-    """
-    req = prepare_solver_request(year, month, df_roster, df_days, config)
-    engine = DutySchedulerEngine(config, prev_balance, req)
-    engine.build_model()
-    return engine.solve()
+    """Orchestrates the solving process."""
+    try:
+        req = prepare_solver_request(year, month, df_roster, df_days, config)
+        engine = DutySchedulerEngine(config, prev_balance, req)
+        engine.build_model()
+        return engine.solve()
+    except Exception as e:
+        logger.error(f"Solver execution failed: {e}")
+        return None
 
 
 def calculate_stats(
     df_roster: pd.DataFrame, df_days: pd.DataFrame, config: AppConfig, prev_balance: Dict
 ) -> pd.DataFrame:
-    """
-    Calculates point statistics for the current roster state.
-    Handles logic for multipliers vs additions for PH/Weekends.
-
-    UPDATED: Normalizes 'Carry Over' by subtracting the minimum value.
-    This ensures that the displayed points stay small and relative.
-    """
+    """Calculates point statistics for the current roster state."""
     summary = []
     raw_carry_overs = []
-
-    # Pre-fetch holidays to check for Eves
     sg_holidays = get_holidays(config.year)
 
     for person in config.personnel:
@@ -278,21 +211,16 @@ def calculate_stats(
                 if day_idx <= 0:
                     continue
 
-                # Skip if day not in config or inactive
-                if day_idx not in df_days.index:
-                    continue
-                if not df_days.loc[day_idx, "Active"]:
+                if day_idx not in df_days.index or not df_days.loc[day_idx, "Active"]:
                     continue
 
                 val = df_roster.at[person, day_col]
                 if val in C.ACTIVE_DUTIES:
-                    # Reconstruct date
                     try:
                         current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
                     except Exception:
                         continue
 
-                    # Use centralized helper for consistent scoring
                     SCALE_FACTOR = 100
                     scaled_pts = config.points.calculate_score(
                         date_obj=current_date,
@@ -306,35 +234,23 @@ def calculate_stats(
         summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})
         raw_carry_overs.append(raw_total)
 
-    # 2. Find Minimum to Normalize
     min_carry = min(raw_carry_overs) if raw_carry_overs else 0.0
-
-    # 3. Second Pass: Build Final DataFrame with Normalized Carry Over
     final_stats = []
     for record in summary:
         record["Carry Over"] = record["Raw Total"] - min_carry
-        final_stats.append(
-            {
-                "Name": record["Name"],
-                "Brought Fwd": record["Brought Fwd"],
-                "Month Pts": record["Month Pts"],
-                "Carry Over": record["Carry Over"],
-            }
-        )
+        final_stats.append(record)
 
     return pd.DataFrame(final_stats)
 
 
 def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, config: AppConfig) -> bytes:
-    """Generates a downloadable Excel file from the DataFrames."""
+    """Generates a downloadable Excel file."""
     output = io.BytesIO()
     wb = Workbook()
     ws = wb.active
     ws.title = C.EXCEL_SHEET_TITLE
 
-    # Convert "D1", "D2" -> 1, 2 for the Header row
     header_days = [get_day_num(c) for c in df_roster.columns]
-
     ws.append(C.EXCEL_HEADERS_STATIC + header_days + C.EXCEL_HEADERS_SUFFIX)
 
     stats_map = df_stats.set_index("Name").to_dict("index")
@@ -352,10 +268,10 @@ def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, confi
     # Styles
     fill_header = PatternFill("solid", fgColor=C.COLOR_HEADER_BG.replace("#", ""))
     fill_x = PatternFill("solid", fgColor=C.COLOR_CONSTRAINT_BG.replace("#", ""))
-    fill_24h = PatternFill("solid", fgColor="FF99CCFF")  # Light Blue
-    fill_am = PatternFill("solid", fgColor="FFFFCC99")  # Light Orange
-    fill_pm = PatternFill("solid", fgColor="FFCC99FF")  # Light Purple
-    fill_sb = PatternFill("solid", fgColor="FFCCFFCC")  # Light Green
+    fill_24h = PatternFill("solid", fgColor="FF99CCFF")
+    fill_am = PatternFill("solid", fgColor="FFFFCC99")
+    fill_pm = PatternFill("solid", fgColor="FFCC99FF")
+    fill_sb = PatternFill("solid", fgColor="FFCCFFCC")
 
     thin_side = Side(style="thin")
     thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)

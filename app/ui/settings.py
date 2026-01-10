@@ -27,8 +27,8 @@ def render_settings(config: AppConfig):
     new_names_str = st.text_area("Names (comma separated)", value=current_names, height=100)
 
     # Update config immediately on change
-    if new_names_str != current_names:
-        new_list = [n.strip() for n in new_names_str.split(",") if n.strip()]
+    new_list = [n.strip() for n in new_names_str.split(",") if n.strip()]
+    if new_list != config.personnel:
         config.personnel = new_list
         # We don't rerun here to allow bulk edits, but data binds to the object reference
 

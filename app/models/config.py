@@ -46,8 +46,11 @@ class ConstraintsConfig(BaseModel):
     @field_validator("personnel_needed_per_shift")
     @classmethod
     def validate_needs(cls, v: Dict[str, int]) -> Dict[str, int]:
-        """Ensures manpower requirements are non-negative."""
+        """Ensures manpower requirements are non-negative and keys are valid."""
+        valid_shifts = {"AM", "PM", "24H"}
         for key, val in v.items():
+            if key not in valid_shifts:
+                raise ValueError(f"Invalid shift key '{key}'. Expected one of {valid_shifts}")
             if val < 0:
                 raise ValueError(f"Personnel needed for '{key}' cannot be negative.")
         return v

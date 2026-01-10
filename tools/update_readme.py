@@ -38,22 +38,32 @@ def main():
                         version = file.replace("python_version_", "").replace(".txt", "")
                         supported_versions.append(version)
 
-        # Sort versions numerically/lexicographically
-        supported_versions = sorted(list(set(supported_versions)))
+        # Dedup
+        unique_versions = list(set(supported_versions))
 
-        if not supported_versions:
+        # Numeric Sort (3.10 > 3.9)
+        # Convert "3.10" -> (3, 10) for sorting
+        def version_key(v):
+            try:
+                return tuple(map(int, v.split(".")))
+            except ValueError:
+                return (0, 0)
+
+        unique_versions.sort(key=version_key)
+
+        if not unique_versions:
             print("No supported versions found in artifacts.")
             # If running in CI, we might not want to fail if no tests passed (e.g. all failed),
             # but usually that means we shouldn't update badges to "nothing".
             # Let's exit successfully but do nothing.
             return
 
-        print(f"Found supported versions: {supported_versions}")
+        print(f"Found supported versions: {unique_versions}")
 
         # 2. Generate Badge Markdown
         # Uses img.shields.io for badges
         badges = []
-        for v in supported_versions:
+        for v in unique_versions:
             badge = f"![Python {v}](https://img.shields.io/badge/python-{v}-blue?logo=python&logoColor=white)"
             badges.append(badge)
 
@@ -68,8 +78,9 @@ def main():
             content = f.read()
 
         # Regex to find and replace the existing badge section
-        # Looks for ... # Updated to be flexible with whitespace inside comments
-        pattern = r"()(.*?)()"
+        # Looks for <!-- BADGES_START --> ... <!-- BADGES_END -->
+        # Updated to be flexible with whitespace inside comments
+        pattern = r"(<!--\s*BADGES_START\s*-->)(.*?)(<!--\s*BADGES_END\s*-->)"
 
         match = re.search(pattern, content, re.DOTALL)
         if match:
@@ -79,7 +90,7 @@ def main():
                 f.write(new_content)
             print("README.md updated successfully with badges.")
         else:
-            print("Error: Badge markers ... not found in README.md")
+            print("Error: Badge markers <!-- BADGES_START --> ... <!-- BADGES_END --> not found in README.md")
             print("--- Debug: README Start ---")
             print(content[:500])
             print("--- Debug: README End ---")

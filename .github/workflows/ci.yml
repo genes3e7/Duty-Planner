@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-permissions:
-  contents: read
-
 jobs:
   compile-deps:
     runs-on: ubuntu-latest
@@ -17,7 +14,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"  # Changed from 3.13
       - name: Install pip-tools
         run: pip install pip-tools
       - name: Compile requirements
@@ -60,10 +57,10 @@ jobs:
         fi
         pip install pytest pytest-cov ruff
 
-    - name: Lint and Format (Test Phase)
+    - name: Lint and Format (Check Only)
       run: |
-        ruff check --fix .
-        ruff format .
+        ruff check .  # Removed --fix
+        ruff format --check .
 
     - name: Run Tests
       run: pytest --cov=app tests/

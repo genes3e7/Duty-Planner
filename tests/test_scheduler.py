@@ -6,6 +6,7 @@ Verifies solver behavior under various constraints and defensive scenarios.
 """
 
 import pytest
+from ortools.sat.python import cp_model
 
 from app.constants import ScheduleMode
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
@@ -23,7 +24,13 @@ def basic_request():
     day_modes = {d: ScheduleMode.SHIFT.value for d in range(1, 32)}
 
     req = SolverRequest(
-        staff_ids=cfg.personnel, year=2025, month=1, fixed_assignments={}, day_modes=day_modes, inactive_days=[]
+        staff_ids=cfg.personnel,
+        year=2025,
+        month=1,
+        fixed_assignments={},
+        day_modes=day_modes,
+        inactive_days=[],
+        shift_weights={},  # Default empty for structural tests
     )
     return cfg, req
 
@@ -38,8 +45,11 @@ def test_solver_empty_staff(basic_request):
     result = engine.solve()
 
     # An empty model is feasible, resulting in an empty schedule
-    # Returns ({}, None) because it's feasible but has no assignments
-    assert result == ({}, None)
+    # Returns (schedule, status)
+    assert result is not None
+    schedule, status = result
+    assert schedule == {}
+    assert status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
 
 
 def test_solver_impossible_constraints(basic_request):
@@ -66,15 +76,26 @@ def test_solver_fixed_assignment_respect(basic_request):
 
     assert schedule is not None
     # Ensure A is not working on day 1
-    for shift in ["AM", "PM", "S/B"]:
-        assert schedule.get(("A", 1)) != shift
-
-    assert schedule.get(("A", 1)) == "X"
+    # X means no shift, so A should not appear in assignment list for Day 1
+    assert ("A", 1) not in schedule
 
 
-def test_solver_fairness_std_dev():
+def test_solve_basic_feasible(basic_request):
+    """Test that the solver finds a solution for a trivial case."""
+    config, request = basic_request
+    engine = DutySchedulerEngine(config, {}, request)
+    engine.build_model()
+
+    result = engine.solve()
+    assert result is not None
+    schedule, status = result
+    assert isinstance(schedule, dict)
+    assert len(schedule) > 0
+
+
+def test_solver_produces_schedule_with_holiday():
     """
-    Tests that the solver can handle a month with holidays (June 2025 - Hari Raya Haji on June 7)
+    Tests that the solver can handle a month with holidays (June 2025)
     and produces a schedule.
     """
     cfg = AppConfig.default()
@@ -90,6 +111,7 @@ def test_solver_fairness_std_dev():
         fixed_assignments={},
         day_modes=day_modes,
         inactive_days=[],
+        shift_weights={},
     )
 
     engine = DutySchedulerEngine(cfg, {}, req)

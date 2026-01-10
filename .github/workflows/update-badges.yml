@@ -12,7 +12,10 @@ permissions:
 jobs:
   update-badges:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Security: Only run if the PR/Branch belongs to this repository (no forks)
+    if: >
+      github.event.workflow_run.conclusion == 'success' && 
+      github.event.workflow_run.head_repository.full_name == github.repository
     steps:
       # 1. Checkout Trusted Code (Main Branch) to get safe scripts
       - name: Checkout Trusted Scripts
@@ -56,8 +59,8 @@ jobs:
       - name: Apply Fixes and Update Badges
         working-directory: ./repo_content
         run: |
-          # Run Linting
-          ruff check --fix .
+          # Run Linting (Check only, fixes should be done in CI or locally to avoid confusion)
+          # We only format here to ensure the badge update commit is clean
           ruff format .
           
           # Run Badge Update Script (using the SAFE version from main)
@@ -67,8 +70,6 @@ jobs:
       # 6. Commit and Push (Explicitly targeting the branch)
       - name: Commit and Push Updates
         working-directory: ./repo_content
-        env:
-          BRANCH_NAME: ${{ github.event.workflow_run.head_branch }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -91,5 +92,6 @@ jobs:
           git commit -m "$MSG"
           
           # PUSH explicitly to the branch we checked out
+          BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
           echo "Pushing to $BRANCH_NAME..."
-          git push origin HEAD:"$BRANCH_NAME"
+          git push origin HEAD:$BRANCH_NAME

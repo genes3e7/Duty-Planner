@@ -1,347 +1,306 @@
 """
 app/core/scheduler.py
 
-This module contains the DutySchedulerEngine, which wraps the Google OR-Tools CP-SAT solver.
-It translates high-level business constraints (from AppConfig) into mathematical variables
-and constraints to find an optimal duty schedule.
+This module contains the core logic for the scheduling engine using OR-Tools.
+It defines the solver model, variables, and constraints.
 """
 
-from dataclasses import dataclass
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-import holidays
-import pandas as pd
 from ortools.sat.python import cp_model
 
+from app import constants as C
 from app.models.config import AppConfig
 
+logger = logging.getLogger(__name__)
 
-@dataclass
+
 class SolverRequest:
     """
-    Data Transfer Object representing a single solve request.
-    Decouples the solver from the UI state or specific data sources.
-
-    Attributes:
-        staff_ids: List of available personnel IDs/names.
-        year: The year of the schedule.
-        month: The month of the schedule.
-        fixed_assignments: Pre-assigned shifts {(Name, Day): Type}.
-        day_modes: Map of {Day: Mode ('SHIFT' or '24H')}.
-        inactive_days: List of day numbers to exclude from solving.
+    Data Transfer Object (DTO) containing all necessary data to run the solver.
+    Decouples the UI data structures from the core logic.
     """
 
-    staff_ids: List[str]
-    year: int
-    month: int
-    fixed_assignments: Dict[Tuple[str, int], str]
-    day_modes: Dict[int, str]
-    inactive_days: List[int]
+    def __init__(
+        self,
+        staff_ids: List[str],
+        year: int,
+        month: int,
+        fixed_assignments: Dict[Tuple[str, int], str],
+        day_modes: Dict[int, str],
+        inactive_days: List[int],
+        shift_weights: Dict[Tuple[int, str], int],
+    ):
+        self.staff_ids = staff_ids
+        self.year = year
+        self.month = month
+        self.fixed_assignments = fixed_assignments
+        self.day_modes = day_modes
+        self.inactive_days = inactive_days
+        self.shift_weights = shift_weights  # Mapping: (Day, Shift) -> Scaled Integer Points
 
 
 class DutySchedulerEngine:
     """
-    The optimization engine that builds and solves the constraint model.
-
-    Uses OR-Tools CP-SAT to satisfy hard constraints while optimizing for fairness.
-
-    Attributes:
-        cfg (AppConfig): The application configuration (constraints, points).
-        balance (Dict[str, float]): Previous month's point balance for fairness.
-        req (SolverRequest): The specific request details (dates, staff, fixed data).
-        model (cp_model.CpModel): The internal OR-Tools model instance.
-        vars (Dict): Storage for decision variables (person, day, shift) -> BoolVar.
+    The main engine wrapping Google OR-Tools CP-SAT solver.
     """
 
-    # Scale factor to handle decimals in integer solver.
-    SCALE = 10
-
     def __init__(self, config: AppConfig, prev_balance: Dict[str, float], request: SolverRequest):
-        self.cfg = config
-        self.balance = prev_balance
+        self.config = config
+        self.prev_balance = prev_balance
         self.req = request
         self.model = cp_model.CpModel()
-        self.vars = {}
+        self.vars: Dict[Tuple[str, int, str], Any] = {}
+        self.shifts = list(C.ACTIVE_DUTIES)  # AM, PM, 24H, S/B
 
-        # Define shifts based on internal constants or config keys
-        # We map string keys to internal representations if needed,
-        # but here we stick to the strings used in config: "AM", "PM", "24H"
-        self.shifts = ["AM", "PM", "24H", "S/B"]
-
-        # Initialize holidays for point calculation
-        self.sg_holidays = holidays.SG(years=self.req.year)
+        # Determine number of days from the day_modes map
+        self.days_range = sorted(self.req.day_modes.keys())
 
     def build_model(self):
         """
-        Constructs the CP-SAT model by creating variables and applying all constraints.
-        This method must be called before solve().
-
-        Raises:
-            ValueError: If the request is invalid (e.g., no days configured).
+        Constructs the CP-SAT model: variables, hard constraints, and objective.
         """
-        # Clear vars to prevent stale constraints if rebuilt
-        self.vars.clear()
-
-        # Defensive check: Ensure we have staff
+        # 1. Early return if no staff
         if not self.req.staff_ids:
-            # Just return, solver will find no solution which is correct for 0 staff
+            logger.warning("No staff IDs provided. Returning empty model.")
             return
 
-        if not self.req.day_modes:
-            raise ValueError("SolverRequest must have at least one day configured in day_modes.")
+        # 2. Create Variables
+        self._create_variables()
 
-        max_day = max(self.req.day_modes.keys())
-
-        # 1. CREATE VARIABLES
-        # We create a boolean variable for every combination: (Person, Day, Shift)
-        # var = 1 means Person is assigned to Shift on Day.
-        for person in self.req.staff_ids:
-            for d in range(1, max_day + 1):
-                # Skip inactive days (e.g., shorter months or disabled days)
-                if d in self.req.inactive_days or d not in self.req.day_modes:
-                    continue
-
-                mode = self.req.day_modes[d]
-
-                # Create variables based on the day's mode
-                if mode == "24H":
-                    # Only create a 24H variable and S/B variable
-                    self.vars[(person, d, "24H")] = self.model.NewBoolVar(f"{person}_d{d}_24H")
-                    self.vars[(person, d, "S/B")] = self.model.NewBoolVar(f"{person}_d{d}_SB")
-                else:
-                    # Create AM, PM and S/B variables
-                    self.vars[(person, d, "AM")] = self.model.NewBoolVar(f"{person}_d{d}_AM")
-                    self.vars[(person, d, "PM")] = self.model.NewBoolVar(f"{person}_d{d}_PM")
-                    self.vars[(person, d, "S/B")] = self.model.NewBoolVar(f"{person}_d{d}_SB")
-
-        # 2. APPLY HARD CONSTRAINTS
+        # 3. Apply Hard Constraints
+        self._apply_daily_coverage()
         self._apply_fixed_assignments()
-        self._apply_daily_manpower_requirements(max_day)
-        self._apply_max_one_shift_per_day(max_day)
-        self._apply_no_consecutive_shifts(max_day)
-        self._apply_max_consecutive_working_days(max_day)
+        self._apply_shift_logic()
 
-        # 3. OBJECTIVE FUNCTION (Fairness)
-        # We want to minimize the variance in points.
-        self._apply_fairness_objective(max_day)
+        # 4. Apply Fairness Objective
+        self._apply_fairness_objective()
 
-    def _apply_fixed_assignments(self):
-        """Forces variables to 1 or 0 based on pre-assigned duties in the UI."""
-        for (person, day), shift_type in self.req.fixed_assignments.items():
-            # Removed unused variable 'day_mode'
-
-            if shift_type == "X":
-                # Ensure at least one variable exists for this person/day
-                found_any = False
-                for s in self.shifts:
-                    if (person, day, s) in self.vars:
-                        found_any = True
-                        break
-                if not found_any:
-                    # This might happen if user assigned X on an inactive day
-                    continue
-
-                # Apply X constraint
-                for s in self.shifts:
-                    if (person, day, s) in self.vars:
-                        self.model.Add(self.vars[(person, day, s)] == 0)
-
-            elif shift_type in self.shifts:
-                # Ensure the specific variable exists
-                if (person, day, shift_type) not in self.vars:
-                    # User assigned a shift that contradicts the day mode (e.g., AM on a 24H day)
-                    # We treat this as an impossible constraint implicitly or ignore.
-                    # Here we raise to inform caller, or could Log warning.
-                    pass
-                else:
-                    self.model.Add(self.vars[(person, day, shift_type)] == 1)
-
-    def _apply_daily_manpower_requirements(self, max_day: int):
-        """Ensures enough people are assigned to each shift type every day."""
-        for d in range(1, max_day + 1):
-            if d in self.req.inactive_days or d not in self.req.day_modes:
-                continue
-
-            mode = self.req.day_modes[d]
-
-            # 1. Standby Requirement (Applies to both modes)
-            sb_needed = self.cfg.constraints.standby_per_day
-            potential_sb = [self.vars[(p, d, "S/B")] for p in self.req.staff_ids if (p, d, "S/B") in self.vars]
-            if potential_sb:
-                self.model.Add(sum(potential_sb) == sb_needed)
-
-            # 2. Duty Requirements
-            if mode == "24H":
-                # Ensure N people are on 24H duty
-                needed = self.cfg.constraints.personnel_needed_per_shift.get("24H", 1)
-                potential_workers = [self.vars[(p, d, "24H")] for p in self.req.staff_ids if (p, d, "24H") in self.vars]
-                if potential_workers:
-                    self.model.Add(sum(potential_workers) == needed)
-            else:
-                # Ensure N people for AM and N for PM
-                for shift in ["AM", "PM"]:
-                    needed = self.cfg.constraints.personnel_needed_per_shift.get(shift, 1)
-                    potential_workers = [
-                        self.vars[(p, d, shift)] for p in self.req.staff_ids if (p, d, shift) in self.vars
-                    ]
-                    if potential_workers:
-                        self.model.Add(sum(potential_workers) == needed)
-
-    def _apply_max_one_shift_per_day(self, max_day: int):
-        """Prevents a person from doing multiple duties on the same day."""
+    def _create_variables(self):
+        """Creates boolean variables for each person, day, and shift."""
         for person in self.req.staff_ids:
-            for d in range(1, max_day + 1):
-                # Collect all possible shift variables for this person/day
-                possible_shifts = [self.vars[(person, d, s)] for s in self.shifts if (person, d, s) in self.vars]
-
-                if possible_shifts:
-                    # Sum of assignments must be <= 1
-                    self.model.Add(sum(possible_shifts) <= 1)
-
-    def _apply_no_consecutive_shifts(self, max_day: int):
-        """
-        Prevents back-to-back duties that are physically impossible or violate rest rules.
-        """
-        for person in self.req.staff_ids:
-            for d in range(1, max_day):  # Iterate up to second-to-last day
-                next_d = d + 1
-
-                fixed_d = self.req.fixed_assignments.get((person, d))
-                fixed_next = self.req.fixed_assignments.get((person, next_d))
-
-                # --- RULE 1: Heavy Duty (Day D) -> Rest (Day D+1) ---
-                # Check Fixed D (S/B or 24H)
-                if fixed_d in ["S/B", "24H"]:
-                    for s in self.shifts:
-                        if (person, next_d, s) in self.vars:
-                            self.model.Add(self.vars[(person, next_d, s)] == 0)
-
-                # Check Variable D (24H or S/B)
-                for heavy in ["24H", "S/B"]:
-                    if (person, d, heavy) in self.vars:
-                        next_day_vars = [
-                            self.vars[(person, next_d, s)] for s in self.shifts if (person, next_d, s) in self.vars
-                        ]
-                        if next_day_vars:
-                            self.model.Add(sum(next_day_vars) == 0).OnlyEnforceIf(self.vars[(person, d, heavy)])
-
-                # --- RULE 2: Any Duty (Day D) -> No Heavy Duty (Day D+1) ---
-                # 2.1 Fixed Next is S/B OR 24H -> Day D cannot be Any Duty (if variable)
-                if fixed_next in ["S/B", "24H"]:
-                    for s in self.shifts:
-                        if (person, d, s) in self.vars:
-                            self.model.Add(self.vars[(person, d, s)] == 0)
-
-                # 2.2 Variable 24H or S/B on Next -> Day D cannot be Any Duty
-                for heavy in ["24H", "S/B"]:
-                    if (person, next_d, heavy) in self.vars:
-                        # Get all possible vars for Day D
-                        current_day_vars = [
-                            self.vars[(person, d, s)] for s in self.shifts if (person, d, s) in self.vars
-                        ]
-                        if current_day_vars:
-                            # If Heavy is assigned on next day, sum of current day vars must be 0
-                            self.model.Add(sum(current_day_vars) == 0).OnlyEnforceIf(self.vars[(person, next_d, heavy)])
-
-                # --- RULE 3: PM -> AM Rest Violation ---
-                # Fixed PM on D
-                if fixed_d == "PM":
-                    if (person, next_d, "AM") in self.vars:
-                        self.model.Add(self.vars[(person, next_d, "AM")] == 0)
-
-                # Variable PM on D
-                if (person, d, "PM") in self.vars and (person, next_d, "AM") in self.vars:
-                    self.model.Add(self.vars[(person, next_d, "AM")] == 0).OnlyEnforceIf(self.vars[(person, d, "PM")])
-
-    def _apply_max_consecutive_working_days(self, max_day: int):
-        """
-        Ensures that a person does not work more than N days in a row.
-        Includes "S/B" (Standby) as a working day.
-        """
-        limit = self.cfg.constraints.max_consecutive_duties
-        window_size = limit + 1
-
-        for person in self.req.staff_ids:
-            working_exprs = {}
-
-            for d in range(1, max_day + 1):
-                day_vars = [self.vars[(person, d, s)] for s in self.shifts if (person, d, s) in self.vars]
-                if day_vars:
-                    working_exprs[d] = sum(day_vars)
-                else:
-                    working_exprs[d] = 0
-
-            # Apply Sliding Window
-            for start_day in range(1, max_day - limit + 1):
-                window_sum = []
-                for i in range(window_size):
-                    d = start_day + i
-                    if d in working_exprs:
-                        window_sum.append(working_exprs[d])
-
-                if window_sum:
-                    self.model.Add(sum(window_sum) <= limit)
-
-    def _apply_fairness_objective(self, max_day: int):
-        """
-        Attempts to distribute points evenly by minimizing the difference between
-        the maximum and minimum score among personnel.
-        """
-        person_points = []
-
-        for person in self.req.staff_ids:
-            initial_pts = int(self.balance.get(person, 0.0) * self.SCALE)
-            earned_expr = 0
-            for d in range(1, max_day + 1):
-                try:
-                    dt = pd.Timestamp(year=self.req.year, month=self.req.month, day=d)
-                except Exception:
+            for day in self.days_range:
+                if day in self.req.inactive_days:
                     continue
 
                 for shift in self.shifts:
-                    if (person, d, shift) in self.vars:
-                        # Use centralized scorer in PointsConfig
-                        final_pts = self.cfg.points.calculate_score(
-                            date_obj=dt, shift_type=shift, scale=self.SCALE, holidays_obj=self.sg_holidays
-                        )
-                        if final_pts > 0:
-                            earned_expr += self.vars[(person, d, shift)] * final_pts
+                    # Var name: "Person_Day_Shift"
+                    self.vars[(person, day, shift)] = self.model.NewBoolVar(f"{person}_{day}_{shift}")
 
-            total_var = self.model.NewIntVar(0, 1000000, f"total_pts_{person}")
-            self.model.Add(total_var == initial_pts + earned_expr)
-            person_points.append(total_var)
+    def _apply_daily_coverage(self):
+        """Ensures the required number of people are assigned to each shift type."""
+        for day in self.days_range:
+            if day in self.req.inactive_days:
+                continue
 
-        min_pts = self.model.NewIntVar(0, 1000000, "min_points")
-        max_pts = self.model.NewIntVar(0, 1000000, "max_points")
+            mode = self.req.day_modes.get(day, C.ScheduleMode.SHIFT.value)
+
+            if mode == C.ScheduleMode.FULL_24H.value:
+                # 24H Mode: Need 24H and S/B
+                needed_24h = self.config.constraints.personnel_needed_per_shift.get("24H", 1)
+                self.model.Add(
+                    sum(self.vars[(p, day, "24H")] for p in self.req.staff_ids if (p, day, "24H") in self.vars)
+                    == needed_24h
+                )
+
+                # AM/PM must be 0
+                for p in self.req.staff_ids:
+                    if (p, day, "AM") in self.vars:
+                        self.model.Add(self.vars[(p, day, "AM")] == 0)
+                    if (p, day, "PM") in self.vars:
+                        self.model.Add(self.vars[(p, day, "PM")] == 0)
+
+            else:
+                # SHIFT Mode: Need AM and PM
+                needed_am = self.config.constraints.personnel_needed_per_shift.get("AM", 1)
+                needed_pm = self.config.constraints.personnel_needed_per_shift.get("PM", 1)
+
+                self.model.Add(
+                    sum(self.vars[(p, day, "AM")] for p in self.req.staff_ids if (p, day, "AM") in self.vars)
+                    == needed_am
+                )
+                self.model.Add(
+                    sum(self.vars[(p, day, "PM")] for p in self.req.staff_ids if (p, day, "PM") in self.vars)
+                    == needed_pm
+                )
+
+                # 24H must be 0
+                for p in self.req.staff_ids:
+                    if (p, day, "24H") in self.vars:
+                        self.model.Add(self.vars[(p, day, "24H")] == 0)
+
+            # S/B coverage (applies to both modes usually, or configured)
+            needed_sb = self.config.constraints.standby_per_day
+            self.model.Add(
+                sum(self.vars[(p, day, "S/B")] for p in self.req.staff_ids if (p, day, "S/B") in self.vars) == needed_sb
+            )
+
+    def _apply_fixed_assignments(self):
+        """
+        Forces variables to 1 based on UI grid inputs (X, AM, PM, etc.).
+        """
+        for (person, day), value in self.req.fixed_assignments.items():
+            if value == "X":
+                # Person cannot work ANY shift on this day
+                for shift in self.shifts:
+                    if (person, day, shift) in self.vars:
+                        self.model.Add(self.vars[(person, day, shift)] == 0)
+            elif value in self.shifts:
+                # Must work exactly this shift
+                v_key = (person, day, value)
+                if v_key in self.vars:
+                    self.model.Add(self.vars[v_key] == 1)
+                else:
+                    mode = self.req.day_modes.get(day, "UNKNOWN")
+                    raise ValueError(
+                        f"Fixed assignment error: Cannot assign '{value}' to {person} on Day {day} "
+                        f"(Mode: {mode}). Variable does not exist."
+                    )
+
+    def _apply_shift_logic(self):
+        """
+        Applies logic rules:
+        1. Max one shift per day per person.
+        2. No consecutive duties limit.
+        3. Cannot work if worked 24H yesterday.
+        4. No duty -> Heavy (24H/SB) -> No duty logic.
+        """
+        # 1. Max one shift per day
+        for person in self.req.staff_ids:
+            for day in self.days_range:
+                daily_vars = [self.vars[(person, day, s)] for s in self.shifts if (person, day, s) in self.vars]
+                if daily_vars:
+                    self.model.Add(sum(daily_vars) <= 1)
+
+        # 2. No work after 24H (Explicit)
+        # This is strictly for "24H" -> Empty Day.
+        for person in self.req.staff_ids:
+            for day in self.days_range:
+                if (person, day, "24H") in self.vars:
+                    next_day = day + 1
+                    if next_day in self.days_range:
+                        for shift in self.shifts:
+                            if (person, next_day, shift) in self.vars:
+                                self.model.AddBoolOr(
+                                    [
+                                        self.vars[(person, day, "24H")].Not(),
+                                        self.vars[(person, next_day, shift)].Not(),
+                                    ]
+                                )
+
+        # 3. Max consecutive duties
+        limit = self.config.constraints.max_consecutive_duties
+        for person in self.req.staff_ids:
+            for i in range(len(self.days_range) - limit):
+                window_days = self.days_range[i : i + limit + 1]
+                window_vars = []
+                for d in window_days:
+                    for s in self.shifts:
+                        if (person, d, s) in self.vars:
+                            window_vars.append(self.vars[(person, d, s)])
+
+                if window_vars:
+                    self.model.Add(sum(window_vars) <= limit)
+
+        # 4. Strict Isolation for S/B and 24H
+        # "Heavy" duties (24H, S/B) must be surrounded by rest days (no duties).
+        # This implies:
+        #   - Day D (Heavy) => Day D-1 (Rest)
+        #   - Day D (Heavy) => Day D+1 (Rest)
+        # We iterate through all days. If a day is Heavy, neighbors must be empty.
+
+        heavy_shifts = ["24H", "S/B"]
+
+        for person in self.req.staff_ids:
+            for day in self.days_range:
+                # Check if this day has a potential heavy shift
+                day_heavy_vars = [self.vars[(person, day, s)] for s in heavy_shifts if (person, day, s) in self.vars]
+
+                if not day_heavy_vars:
+                    continue
+
+                # If any heavy shift is assigned on Day D...
+                is_heavy_day = self.model.NewBoolVar(f"{person}_is_heavy_d{day}")
+                self.model.Add(sum(day_heavy_vars) >= 1).OnlyEnforceIf(is_heavy_day)
+                self.model.Add(sum(day_heavy_vars) == 0).OnlyEnforceIf(is_heavy_day.Not())
+
+                # ... then Day D+1 must be empty (No Shift)
+                next_day = day + 1
+                if next_day in self.days_range:
+                    next_day_shifts = [
+                        self.vars[(person, next_day, s)] for s in self.shifts if (person, next_day, s) in self.vars
+                    ]
+                    if next_day_shifts:
+                        self.model.Add(sum(next_day_shifts) == 0).OnlyEnforceIf(is_heavy_day)
+
+                # ... and Day D-1 must be empty (No Shift)
+                prev_day = day - 1
+                if prev_day in self.days_range:
+                    prev_day_shifts = [
+                        self.vars[(person, prev_day, s)] for s in self.shifts if (person, prev_day, s) in self.vars
+                    ]
+                    if prev_day_shifts:
+                        self.model.Add(sum(prev_day_shifts) == 0).OnlyEnforceIf(is_heavy_day)
+
+    def _apply_fairness_objective(self):
+        """
+        Minimizes the difference between max and min points across all staff.
+        Uses exact weights passed from Logic layer to account for Multipliers.
+        """
+        person_points = []
+
+        # Scaling factor matching logic.py (preserves decimal precision)
+        SCALE = 100
+
+        for person in self.req.staff_ids:
+            expr = []
+            # Add Previous Balance (Scaled)
+            expr.append(int(self.prev_balance.get(person, 0.0) * SCALE))
+
+            for day in self.days_range:
+                for shift in self.shifts:
+                    if (person, day, shift) not in self.vars:
+                        continue
+
+                    # Use EXACT pre-calculated weight (includes PH/Weekend/Friday multipliers)
+                    weight = self.req.shift_weights.get((day, shift), 0)
+
+                    if weight > 0:
+                        expr.append(self.vars[(person, day, shift)] * weight)
+
+            person_total = self.model.NewIntVar(0, 10000000, f"total_pts_{person}")
+            self.model.Add(person_total == sum(expr))
+            person_points.append(person_total)
+
+        if not person_points:
+            return
+
+        # Minimize (Max - Min)
+        min_pts = self.model.NewIntVar(0, 10000000, "min_points")
+        max_pts = self.model.NewIntVar(0, 10000000, "max_points")
 
         self.model.AddMinEquality(min_pts, person_points)
         self.model.AddMaxEquality(max_pts, person_points)
 
         self.model.Minimize(max_pts - min_pts)
 
-    def solve(self) -> Optional[Tuple[Dict, Optional[Any]]]:
-        """
-        Executes the solver.
-
-        Returns:
-            Tuple[Dict, None]: A dictionary of assignments if successful.
-            None: If no feasible solution is found.
-        """
+    def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
+        """Runs the solver and returns the schedule."""
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = self.cfg.constraints.solver_timeout_seconds
+        solver.parameters.max_time_in_seconds = self.config.constraints.solver_timeout_seconds
 
         status = solver.Solve(self.model)
 
-        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             schedule = {}
             for (person, d, shift), var in self.vars.items():
                 if solver.Value(var) == 1:
-                    schedule[(person, d)] = shift
+                    key = (person, d)
+                    if key in schedule:
+                        raise RuntimeError(f"Multiple shifts assigned for {key}: {schedule[key]} and {shift}")
+                    schedule[key] = shift
+            return schedule, status
 
-            for key, val in self.req.fixed_assignments.items():
-                if val == "X":
-                    schedule[key] = "X"
-
-            return schedule, None
-        else:
-            return None
+        logger.warning(f"Solver failed to find solution. Status: {status}")
+        return None
