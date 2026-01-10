@@ -6,7 +6,8 @@ on:
   pull_request:
     branches: [ "main" ]
 
-# REMOVED: permissions block (default is read-only for forks)
+permissions:
+  contents: read
 
 jobs:
   compile-deps:
