@@ -6,8 +6,7 @@ on:
   pull_request:
     branches: [ "main" ]
 
-permissions:
-  contents: write  # Needed for finalize job to push updates
+# REMOVED: permissions block (default is read-only for forks)
 
 jobs:
   compile-deps:
@@ -17,7 +16,6 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          # Updated to 3.13 as per user request
           python-version: "3.13"
       - name: Install pip-tools
         run: pip install pip-tools
@@ -62,7 +60,6 @@ jobs:
         pip install pytest pytest-cov ruff
 
     - name: Lint and Format (Test Phase)
-      # Apply fixes locally so we test the "clean" version
       run: |
         ruff check --fix .
         ruff format .
@@ -76,75 +73,6 @@ jobs:
     - name: Upload Success Marker
       uses: actions/upload-artifact@v4
       with:
-        # Use unique name per matrix job to avoid 409 Conflict
         name: success-markers-${{ matrix.python-version }}
         path: python_version_*.txt
         if-no-files-found: error
-
-  finalize:
-    needs: [test-matrix]
-    runs-on: ubuntu-latest
-    # Only run if ALL matrix jobs passed successfully.
-    if: success()
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Fetch the branch ref to enable pushing back
-          ref: ${{ github.head_ref || github.ref }}
-      
-      - name: Download Success Markers
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          
-      - name: Install Linting Tools
-        run: pip install ruff
-
-      - name: Re-apply Linting Fixes
-        # Re-run fixers to reproduce the code state that passed tests
-        run: |
-          ruff check --fix .
-          ruff format .
-
-      - name: Update README Badges
-        run: python tools/update_readme.py artifacts/
-
-      - name: Commit and Push Updates
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          README_CHANGED=false
-          CODE_CHANGED=false
-          
-          if [[ -n $(git status --porcelain README.md) ]]; then
-            README_CHANGED=true
-          fi
-          
-          # Check for other files (anything that is NOT README.md)
-          if [[ -n $(git status --porcelain | grep -v "README.md") ]]; then
-            CODE_CHANGED=true
-          fi
-          
-          MSG=""
-          
-          if [ "$README_CHANGED" = true ] && [ "$CODE_CHANGED" = true ]; then
-            MSG="chore: update python support badge and apply lint fixes"
-          elif [ "$README_CHANGED" = true ]; then
-            MSG="docs: update python support badge"
-          elif [ "$CODE_CHANGED" = true ]; then
-            MSG="style: apply lint fixes"
-          fi
-          
-          if [ -n "$MSG" ]; then
-            git add .
-            git commit -m "$MSG [skip ci]"
-            git push
-          else
-            echo "No changes to commit."
-          fi
