@@ -56,8 +56,13 @@ def test_generate_empty_schedule_invalid_date():
 
 def test_calculate_stats_multipliers(default_config):
     """Exhaustive test of point scoring logic."""
-    roster, days = logic.generate_empty_schedule(2025, 1, ["TestUser"])
+    # 1. Sync Config with the Test Data Year/Month
+    default_config.year = 2025
+    default_config.month = 1
     default_config.personnel = ["TestUser"]
+
+    # 2. Generate Data for Jan 2025
+    roster, days = logic.generate_empty_schedule(2025, 1, ["TestUser"])
 
     pts = default_config.points
     pts.AM = 1.0

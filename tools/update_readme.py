@@ -26,63 +26,67 @@ def main():
     artifacts_dir = sys.argv[1]
     readme_path = "README.md"
 
-    # 1. Identify Supported Versions
-    supported_versions = []
-    if os.path.exists(artifacts_dir):
-        # Walk through artifacts directory to find success markers
-        for _root, _dirs, files in os.walk(artifacts_dir):
-            for file in files:
-                if file.startswith("python_version_") and file.endswith(".txt"):
-                    # Extract version number from filename: python_version_3.12.txt -> 3.12
-                    version = file.replace("python_version_", "").replace(".txt", "")
-                    supported_versions.append(version)
+    try:
+        # 1. Identify Supported Versions
+        supported_versions = []
+        if os.path.exists(artifacts_dir):
+            # Walk through artifacts directory to find success markers
+            for _root, _dirs, files in os.walk(artifacts_dir):
+                for file in files:
+                    if file.startswith("python_version_") and file.endswith(".txt"):
+                        # Extract version number from filename: python_version_3.12.txt -> 3.12
+                        version = file.replace("python_version_", "").replace(".txt", "")
+                        supported_versions.append(version)
 
-    # Sort versions numerically/lexicographically
-    supported_versions = sorted(list(set(supported_versions)))
+        # Sort versions numerically/lexicographically
+        supported_versions = sorted(list(set(supported_versions)))
 
-    if not supported_versions:
-        print("No supported versions found in artifacts.")
-        # If running in CI, we might not want to fail if no tests passed (e.g. all failed),
-        # but usually that means we shouldn't update badges to "nothing".
-        # Let's exit successfully but do nothing.
-        return
+        if not supported_versions:
+            print("No supported versions found in artifacts.")
+            # If running in CI, we might not want to fail if no tests passed (e.g. all failed),
+            # but usually that means we shouldn't update badges to "nothing".
+            # Let's exit successfully but do nothing.
+            return
 
-    print(f"Found supported versions: {supported_versions}")
+        print(f"Found supported versions: {supported_versions}")
 
-    # 2. Generate Badge Markdown
-    # Uses img.shields.io for badges
-    badges = []
-    for v in supported_versions:
-        badge = f"![Python {v}](https://img.shields.io/badge/python-{v}-blue?logo=python&logoColor=white)"
-        badges.append(badge)
+        # 2. Generate Badge Markdown
+        # Uses img.shields.io for badges
+        badges = []
+        for v in supported_versions:
+            badge = f"![Python {v}](https://img.shields.io/badge/python-{v}-blue?logo=python&logoColor=white)"
+            badges.append(badge)
 
-    badges_md = " ".join(badges)
+        badges_md = " ".join(badges)
 
-    # 3. Update README
-    if not os.path.exists(readme_path):
-        print(f"Error: {readme_path} not found.")
-        sys.exit(1)
+        # 3. Update README
+        if not os.path.exists(readme_path):
+            print(f"Error: {readme_path} not found.")
+            sys.exit(1)
 
-    with open(readme_path, "r", encoding="utf-8") as f:
-        content = f.read()
+        with open(readme_path, "r", encoding="utf-8") as f:
+            content = f.read()
 
-    # Regex to find and replace the existing badge section
-    # Looks for <!-- BADGES_START --> ... <!-- BADGES_END -->
-    # Updated to be flexible with whitespace inside comments
-    pattern = r"(<!--\s*BADGES_START\s*-->)(.*?)(<!--\s*BADGES_END\s*-->)"
+        # Regex to find and replace the existing badge section
+        # Looks for ... # Updated to be flexible with whitespace inside comments
+        pattern = r"()(.*?)()"
 
-    match = re.search(pattern, content, re.DOTALL)
-    if match:
-        new_content = re.sub(pattern, f"\\1\n{badges_md}\n\\3", content, flags=re.DOTALL)
+        match = re.search(pattern, content, re.DOTALL)
+        if match:
+            new_content = re.sub(pattern, f"\\1\n{badges_md}\n\\3", content, flags=re.DOTALL)
 
-        with open(readme_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        print("README.md updated successfully with badges.")
-    else:
-        print("Error: Badge markers <!-- BADGES_START --> ... <!-- BADGES_END --> not found in README.md")
-        print("--- Debug: README Start ---")
-        print(content[:500])
-        print("--- Debug: README End ---")
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            print("README.md updated successfully with badges.")
+        else:
+            print("Error: Badge markers ... not found in README.md")
+            print("--- Debug: README Start ---")
+            print(content[:500])
+            print("--- Debug: README End ---")
+            sys.exit(1)
+
+    except Exception as e:
+        print(f"Error updating README: {e}")
         sys.exit(1)
 
 

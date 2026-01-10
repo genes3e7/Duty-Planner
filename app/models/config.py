@@ -7,12 +7,23 @@ Includes validation logic to ensure configuration integrity (defensive coding).
 
 import datetime
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Container, Dict, List, Optional, Union
 
 import pandas as pd
+from dateutil.relativedelta import relativedelta
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
+
+
+def _get_next_month_year() -> int:
+    """Returns the year of the next month relative to today."""
+    return (datetime.date.today() + relativedelta(months=1)).year
+
+
+def _get_next_month_month() -> int:
+    """Returns the month (1-12) of the next month relative to today."""
+    return (datetime.date.today() + relativedelta(months=1)).month
 
 
 class ConstraintsConfig(BaseModel):
@@ -55,12 +66,17 @@ class PointsConfig(BaseModel):
     ph_multiplier: float = Field(2.0, ge=0)
     ph_eve_multiplier: float = Field(1.5, ge=0)
     weekend_multiplier: float = Field(1.5, ge=0)
-    friday_multiplier: float = Field(1.0, ge=0)
+
+    # Friday Split: AM and PM specific configuration
+    friday_am_multiplier: float = Field(1.0, ge=0)
+    friday_pm_multiplier: float = Field(1.0, ge=0)
 
     ph_is_multiplier: bool = True
     ph_eve_is_multiplier: bool = True
     weekend_is_multiplier: bool = True
-    friday_is_multiplier: bool = True
+
+    friday_am_is_multiplier: bool = True
+    friday_pm_is_multiplier: bool = True
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -94,7 +110,7 @@ class PointsConfig(BaseModel):
         date_obj: Union[pd.Timestamp, datetime.date],
         shift_type: str,
         scale: int = 1,
-        holidays_obj: Optional[Any] = None,
+        holidays_obj: Optional[Container] = None,
     ) -> int:
         """
         Calculates the weighted score for a duty on a specific date.
@@ -128,7 +144,7 @@ class PointsConfig(BaseModel):
         multiplier = 1.0
         adder = 0.0
 
-        # Priority: PH > PH Eve > Friday > Weekend
+        # Priority: PH > PH Eve > Friday (Split) > Weekend
         if is_ph:
             if self.ph_is_multiplier:
                 multiplier = self.ph_multiplier
@@ -140,10 +156,20 @@ class PointsConfig(BaseModel):
             else:
                 adder = self.ph_eve_multiplier
         elif is_friday:
-            if self.friday_is_multiplier:
-                multiplier = self.friday_multiplier
-            else:
-                adder = self.friday_multiplier
+            # Handle AM vs PM split for Fridays
+            if shift_type == "AM":
+                if self.friday_am_is_multiplier:
+                    multiplier = self.friday_am_multiplier
+                else:
+                    adder = self.friday_am_multiplier
+            elif shift_type == "PM":
+                if self.friday_pm_is_multiplier:
+                    multiplier = self.friday_pm_multiplier
+                else:
+                    adder = self.friday_pm_multiplier
+            # If 24H/SB on Friday, we treat it as standard (or fall through to Weekend check if Fri was Sat)
+
+        # Only check weekend if we haven't already applied a higher priority rule (like PH)
         elif is_weekend:
             if self.weekend_is_multiplier:
                 multiplier = self.weekend_multiplier
@@ -160,10 +186,11 @@ class AppConfig(BaseModel):
     Aggregates personnel lists, constraints, and point settings.
     """
 
-    year: int = Field(2025, ge=2000, le=2100)
+    # Dynamic default: Next month relative to today
+    year: int = Field(default_factory=_get_next_month_year, ge=2000, le=2100)
     """Year for the roster planning."""
 
-    month: int = Field(1, ge=1, le=12)
+    month: int = Field(default_factory=_get_next_month_month, ge=1, le=12)
     """Month for the roster planning (1-12)."""
 
     personnel: List[str] = Field(default_factory=list)

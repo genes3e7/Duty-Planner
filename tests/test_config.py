@@ -5,16 +5,25 @@ Tests for configuration models and validation logic.
 Verifies that defensive validators prevent invalid configurations.
 """
 
+import datetime
+
 import pytest
+from dateutil.relativedelta import relativedelta
 from pydantic import ValidationError
 
 from app.models.config import AppConfig, ConstraintsConfig, PointsConfig
 
 
 def test_app_config_defaults():
-    """Test that default config generates valid structure."""
+    """Test that default config generates valid structure with dynamic next-month date."""
     cfg = AppConfig.default()
-    assert cfg.year == 2025
+
+    # Calculate expected next month
+    expected = datetime.date.today() + relativedelta(months=1)
+
+    assert cfg.year == expected.year
+    assert cfg.month == expected.month
+
     assert len(cfg.personnel) == 20
     assert cfg.constraints.standby_per_day == 1
 

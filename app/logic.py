@@ -295,7 +295,10 @@ def calculate_stats(
                     # Use centralized helper for consistent scoring
                     SCALE_FACTOR = 100
                     scaled_pts = config.points.calculate_score(
-                        date_obj=current_date, shift_type=val, scale=SCALE_FACTOR, holidays_obj=sg_holidays
+                        date_obj=current_date,
+                        shift_type=val,
+                        scale=SCALE_FACTOR,
+                        holidays_obj=sg_holidays,
                     )
                     current_pts += scaled_pts / SCALE_FACTOR
 

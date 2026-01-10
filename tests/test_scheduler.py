@@ -7,6 +7,7 @@ Verifies solver behavior under various constraints and defensive scenarios.
 
 import pytest
 
+from app.constants import ScheduleMode
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
 from app.models.config import AppConfig
 
@@ -17,8 +18,9 @@ def basic_request():
     cfg = AppConfig.default()
     cfg.personnel = ["A", "B", "C", "D", "E", "F"]
 
-    # 30 day month
-    day_modes = {d: "SHIFT" for d in range(1, 31)}
+    # 31 day month (January)
+    # Using enum .value to get string representation
+    day_modes = {d: ScheduleMode.SHIFT.value for d in range(1, 32)}
 
     req = SolverRequest(
         staff_ids=cfg.personnel, year=2025, month=1, fixed_assignments={}, day_modes=day_modes, inactive_days=[]
@@ -68,3 +70,32 @@ def test_solver_fixed_assignment_respect(basic_request):
         assert schedule.get(("A", 1)) != shift
 
     assert schedule.get(("A", 1)) == "X"
+
+
+def test_solver_fairness_std_dev():
+    """
+    Tests that the solver can handle a month with holidays (June 2025 - Hari Raya Haji on June 7)
+    and produces a schedule.
+    """
+    cfg = AppConfig.default()
+    cfg.personnel = ["A", "B", "C", "D", "E", "F"]
+
+    # June 2025 has 30 days.
+    day_modes = {d: ScheduleMode.SHIFT.value for d in range(1, 31)}
+
+    req = SolverRequest(
+        staff_ids=cfg.personnel,
+        year=2025,
+        month=6,  # June
+        fixed_assignments={},
+        day_modes=day_modes,
+        inactive_days=[],
+    )
+
+    engine = DutySchedulerEngine(cfg, {}, req)
+    engine.build_model()
+    res = engine.solve()
+
+    assert res is not None
+    schedule, _ = res
+    assert len(schedule) > 0

@@ -11,6 +11,7 @@ Handles the main planning interface:
 import calendar
 import logging
 
+import pandas as pd
 import streamlit as st
 
 from app import logic
@@ -55,6 +56,10 @@ def render_planner(config: AppConfig):
 
     if "prev_balance" not in st.session_state:
         st.session_state.prev_balance = {}
+
+    # Update Index Name to show Month/Year in top-left
+    if st.session_state.roster_df is not None:
+        st.session_state.roster_df.index.name = f"{sel_month_name} {sel_year}"
 
     # --- 1. Toolbar / Actions ---
     col_act1, col_act2, col_act3 = st.columns([1, 1, 2])
@@ -101,6 +106,17 @@ def render_planner(config: AppConfig):
     with st.expander("⚙️ Day Settings & Constraints", expanded=False):
         st.caption("Configure which days are Holidays (24H) or active.")
 
+        # Bulk Action Buttons
+        b_col1, b_col2 = st.columns(2)
+        with b_col1:
+            if st.button("Set All to Shift (AM/PM)", use_container_width=True):
+                st.session_state.day_config_df["Mode"] = "SHIFT"
+                st.rerun()
+        with b_col2:
+            if st.button("Set All to 24H", use_container_width=True):
+                st.session_state.day_config_df["Mode"] = "24H"
+                st.rerun()
+
         edited_day_config = st.data_editor(
             st.session_state.day_config_df,
             column_config={
@@ -109,10 +125,11 @@ def render_planner(config: AppConfig):
                     "Mode", options=["SHIFT", "24H"], width="medium", required=True
                 ),
                 "Is_PH": st.column_config.CheckboxColumn("PH", width="small"),
-                "Is_Weekend": st.column_config.CheckboxColumn("Wknd", width="small", disabled=True),
             },
-            disabled=["Date", "Day", "Is_Weekend"],
-            width="stretch",  # Fixed: use width instead of use_container_width
+            # Hiding "Is_Weekend" by strictly defining column_order
+            column_order=["Active", "Mode", "Is_PH"],
+            disabled=["Date", "Day"],
+            width="stretch",
             key="day_config_editor",
         )
         if not edited_day_config.equals(st.session_state.day_config_df):
@@ -126,17 +143,41 @@ def render_planner(config: AppConfig):
     for col_name in st.session_state.roster_df.columns:
         day_num = logic.get_day_num(col_name)
         if day_num > 0 and day_num in st.session_state.day_config_df.index:
-            mode = st.session_state.day_config_df.loc[day_num, "Mode"]
+            row_config = st.session_state.day_config_df.loc[day_num]
+            mode = row_config["Mode"]
+            is_active = row_config["Active"]
+            is_ph = row_config["Is_PH"]
+
+            # Construct Header Label: e.g. "1 Mon" or "1 Mon 🏖️"
+            try:
+                date_obj = pd.Timestamp(year=sel_year, month=sel_month, day=day_num)
+                day_str = date_obj.strftime("%a")  # Mon, Tue
+                label = f"{day_num} {day_str}"
+            except Exception:
+                label = str(day_num)
+
+            # Visual Indicators in Header
+            if is_ph:
+                label += " 🏖️"
+
+            if not is_active:
+                label += " 🚫"
+
+            # Options available
             opts = ["", "X", "24H", "S/B"] if mode == "24H" else ["", "X", "AM", "PM", "S/B"]
 
             column_config[col_name] = st.column_config.SelectboxColumn(
-                label=str(day_num), options=opts, width="small", required=False
+                label=label,
+                options=opts,
+                width=90,  # Custom pixel width: tight fit for Emoji
+                required=False,
+                disabled=not is_active,  # Disable the column if day is inactive
             )
 
     edited_roster = st.data_editor(
         st.session_state.roster_df,
         column_config=column_config,
-        width="stretch",  # Fixed: use width instead of use_container_width
+        width="stretch",
         height=500,
         key=f"roster_editor_{st.session_state.roster_version}",
     )
@@ -158,7 +199,7 @@ def render_planner(config: AppConfig):
     c2.metric("Avg Points", f"{stats_df['Month Pts'].mean():.2f}")
     c3.metric("Std Dev", f"{stats_df['Month Pts'].std():.2f}")
 
-    st.dataframe(stats_df, width="stretch", hide_index=True)  # Fixed
+    st.dataframe(stats_df, width="stretch", hide_index=True)
 
     xlsx_data = logic.export_to_excel_bytes(st.session_state.roster_df, stats_df, config)
     st.download_button(
@@ -166,5 +207,5 @@ def render_planner(config: AppConfig):
         data=xlsx_data,
         file_name=f"Roster_{sel_year}_{sel_month}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,  # Buttons still typically use this boolean
+        use_container_width=True,
     )

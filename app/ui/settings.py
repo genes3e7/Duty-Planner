@@ -67,17 +67,55 @@ def render_settings(config: AppConfig):
         with p4:
             config.points.SB = st.number_input("Standby Pts", value=config.points.SB)
 
-    with st.expander("Multipliers"):
-        m1, m2 = st.columns(2)
+    with st.expander("Multipliers", expanded=True):
+        st.caption("Multipliers scale the base points (e.g. 2x). If unchecked, the value is added (e.g. +2).")
+
+        # Row 1: Public Holidays & Eves
+        st.markdown("**Holidays**")
+        m1, m2, m3, m4 = st.columns(4)
         with m1:
-            config.points.ph_multiplier = st.number_input("PH Multiplier", value=config.points.ph_multiplier)
-            config.points.weekend_multiplier = st.number_input(
-                "Weekend Multiplier", value=config.points.weekend_multiplier
-            )
+            config.points.ph_multiplier = st.number_input("PH Value", value=config.points.ph_multiplier)
         with m2:
-            config.points.ph_is_multiplier = st.checkbox("PH is Multiplier?", value=config.points.ph_is_multiplier)
+            config.points.ph_is_multiplier = st.checkbox("Is Multiplier? (PH)", value=config.points.ph_is_multiplier)
+        with m3:
+            config.points.ph_eve_multiplier = st.number_input("PH Eve Value", value=config.points.ph_eve_multiplier)
+        with m4:
+            config.points.ph_eve_is_multiplier = st.checkbox(
+                "Is Multiplier? (Eve)", value=config.points.ph_eve_is_multiplier
+            )
+
+        st.divider()
+
+        # Row 2: Weekends
+        st.markdown("**Weekends**")
+        w1, w2 = st.columns(2)
+        with w1:
+            config.points.weekend_multiplier = st.number_input("Weekend Value", value=config.points.weekend_multiplier)
+        with w2:
             config.points.weekend_is_multiplier = st.checkbox(
-                "Weekend is Multiplier?", value=config.points.weekend_is_multiplier
+                "Is Multiplier? (Wknd)", value=config.points.weekend_is_multiplier
+            )
+
+        st.divider()
+
+        # Row 3: Friday Split
+        st.markdown("**Friday Shifts**")
+        f1, f2, f3, f4 = st.columns(4)
+        with f1:
+            config.points.friday_am_multiplier = st.number_input(
+                "Fri AM Value", value=config.points.friday_am_multiplier
+            )
+        with f2:
+            config.points.friday_am_is_multiplier = st.checkbox(
+                "Is Multiplier? (Fri AM)", value=config.points.friday_am_is_multiplier
+            )
+        with f3:
+            config.points.friday_pm_multiplier = st.number_input(
+                "Fri PM Value", value=config.points.friday_pm_multiplier
+            )
+        with f4:
+            config.points.friday_pm_is_multiplier = st.checkbox(
+                "Is Multiplier? (Fri PM)", value=config.points.friday_pm_is_multiplier
             )
 
     st.info("Settings are applied in memory. Click 'Save Configuration' in the sidebar to persist to disk.")
