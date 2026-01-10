@@ -67,6 +67,8 @@ jobs:
       # 6. Commit and Push (Explicitly targeting the branch)
       - name: Commit and Push Updates
         working-directory: ./repo_content
+        env:
+          BRANCH_NAME: ${{ github.event.workflow_run.head_branch }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -89,6 +91,5 @@ jobs:
           git commit -m "$MSG"
           
           # PUSH explicitly to the branch we checked out
-          BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
           echo "Pushing to $BRANCH_NAME..."
-          git push origin HEAD:$BRANCH_NAME
+          git push origin HEAD:"$BRANCH_NAME"
