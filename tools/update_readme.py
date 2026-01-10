@@ -30,7 +30,7 @@ def main():
     supported_versions = []
     if os.path.exists(artifacts_dir):
         # Walk through artifacts directory to find success markers
-        for _, _, files in os.walk(artifacts_dir):
+        for _root, _dirs, files in os.walk(artifacts_dir):
             for file in files:
                 if file.startswith("python_version_") and file.endswith(".txt"):
                     # Extract version number from filename: python_version_3.12.txt -> 3.12
@@ -42,6 +42,9 @@ def main():
 
     if not supported_versions:
         print("No supported versions found in artifacts.")
+        # If running in CI, we might not want to fail if no tests passed (e.g. all failed),
+        # but usually that means we shouldn't update badges to "nothing".
+        # Let's exit successfully but do nothing.
         return
 
     print(f"Found supported versions: {supported_versions}")
@@ -65,17 +68,21 @@ def main():
 
     # Regex to find and replace the existing badge section
     # Looks for <!-- BADGES_START --> ... <!-- BADGES_END -->
-    pattern = r"(<!-- BADGES_START -->)(.*?)(<!-- BADGES_END -->)"
+    # Updated to be flexible with whitespace inside comments
+    pattern = r"(<!--\s*BADGES_START\s*-->)(.*?)(<!--\s*BADGES_END\s*-->)"
 
-    if re.search(pattern, content, re.DOTALL):
+    match = re.search(pattern, content, re.DOTALL)
+    if match:
         new_content = re.sub(pattern, f"\\1\n{badges_md}\n\\3", content, flags=re.DOTALL)
 
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write(new_content)
-        print("README.md updated successfully.")
+        print("README.md updated successfully with badges.")
     else:
         print("Error: Badge markers <!-- BADGES_START --> ... <!-- BADGES_END --> not found in README.md")
-        # Optional: Append if markers missing? For now, we enforce markers.
+        print("--- Debug: README Start ---")
+        print(content[:500])
+        print("--- Debug: README End ---")
         sys.exit(1)
 
 
