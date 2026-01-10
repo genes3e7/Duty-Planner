@@ -14,8 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-      # 1. Checkout Trusted Code (Main Branch)
-      # We need this to run the SAFE version of tools/update_readme.py
+      # 1. Checkout Trusted Code (Main Branch) to get safe scripts
       - name: Checkout Trusted Scripts
         uses: actions/checkout@v4
         with:
@@ -31,7 +30,7 @@ jobs:
           path: repo_content
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 3. Download Artifacts from the Triggering Workflow
+      # 3. Download Artifacts
       - name: Download Success Markers
         uses: actions/download-artifact@v4
         with:
@@ -39,59 +38,57 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: repo_content/artifacts/
 
+      # 4. Debugging: Check if artifacts actually arrived
+      - name: Debug Artifacts
+        run: |
+          echo "Listing artifacts directory:"
+          ls -R repo_content/artifacts/
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install Linting Tools
+      - name: Install Tools
         run: pip install ruff
 
-      # 4. Apply Fixes on the Target Branch
-      - name: Re-apply Linting Fixes
+      # 5. Apply Fixes & Updates
+      - name: Apply Fixes and Update Badges
         working-directory: ./repo_content
         run: |
+          # Run Linting
           ruff check --fix .
           ruff format .
-
-      # 5. Run Trusted Update Script
-      # We run the script from 'trusted_code' against the files in 'repo_content'
-      - name: Update README Badges
-        working-directory: ./repo_content
-        run: |
-          # The script expects artifacts dir as arg 1 and looks for README.md in CWD
+          
+          # Run Badge Update Script (using the SAFE version from main)
+          # We pass the relative path to artifacts
           python ../trusted_code/tools/update_readme.py artifacts/
 
+      # 6. Commit and Push (Explicitly targeting the branch)
       - name: Commit and Push Updates
         working-directory: ./repo_content
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          README_CHANGED=false
-          CODE_CHANGED=false
-          
-          if [[ -n $(git status --porcelain README.md) ]]; then
-            README_CHANGED=true
-          fi
-          
-          if [[ -n $(git status --porcelain | grep -v "README.md") ]]; then
-            CODE_CHANGED=true
-          fi
-          
-          MSG=""
-          if [ "$README_CHANGED" = true ] && [ "$CODE_CHANGED" = true ]; then
-            MSG="chore: update python support badge and apply lint fixes"
-          elif [ "$README_CHANGED" = true ]; then
-            MSG="docs: update python support badge"
-          elif [ "$CODE_CHANGED" = true ]; then
-            MSG="style: apply lint fixes"
-          fi
-          
-          if [ -n "$MSG" ]; then
-            git add .
-            git commit -m "$MSG [skip ci]"
-            git push
-          else
+          # Check for changes
+          if [[ -z $(git status --porcelain) ]]; then
             echo "No changes to commit."
+            exit 0
           fi
+          
+          echo "Changes detected. Committing..."
+          git add .
+          
+          # Determine Commit Message
+          MSG="chore: auto-update from CI [skip ci]"
+          if [[ -n $(git status --porcelain README.md) ]]; then
+            MSG="docs: update python support badge [skip ci]"
+          fi
+
+          git commit -m "$MSG"
+          
+          # PUSH explicitly to the branch we checked out
+          BRANCH_NAME="${{ github.event.workflow_run.head_branch }}"
+          echo "Pushing to $BRANCH_NAME..."
+          git push origin HEAD:$BRANCH_NAME
