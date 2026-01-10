@@ -48,6 +48,7 @@ def get_holidays(year: int) -> holidays.HolidayBase:
     """
     Returns the holiday object for Singapore for the given year.
     Note: Holiday calendar is hardcoded to Singapore (SG).
+    Consider making country configurable via AppConfig in future.
 
     Args:
         year (int): The year to fetch holidays for.
@@ -169,9 +170,9 @@ def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = 
                 if not s_val:
                     continue
 
-                # Robust check for X - ONLY Preserve X
-                if "X" in s_val:
-                    df.iat[r, c] = "X"  # Preserve/Normalize
+                # Robust check for X - ONLY Preserve X (Exact Match)
+                if s_val == "X":
+                    df.iat[r, c] = "X"  # Preserve
                 else:
                     df.iat[r, c] = ""  # Clear everything else (AM, PM, 24H, S/B)
 
@@ -250,9 +251,6 @@ def calculate_stats(
     raw_carry_overs = []
 
     # Pre-fetch holidays to check for Eves
-    # We need year from config or infer from df_days date strings if possible,
-    # but strictly stats calculation should rely on config context or we need to pass year/month.
-    # Fortunately config has year/month.
     sg_holidays = get_holidays(config.year)
 
     for person in config.personnel:

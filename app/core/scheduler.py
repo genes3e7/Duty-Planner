@@ -7,8 +7,10 @@ and constraints to find an optimal duty schedule.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
+import holidays
+import pandas as pd
 from ortools.sat.python import cp_model
 
 from app.models.config import AppConfig
@@ -58,6 +60,9 @@ class DutySchedulerEngine:
         # but here we stick to the strings used in config: "AM", "PM", "24H"
         # UPDATED: Added "S/B" so solver can assign it
         self.shifts = ["AM", "PM", "24H", "S/B"]
+
+        # Initialize holidays for point calculation
+        self.sg_holidays = holidays.SG(years=self.req.year)
 
     def build_model(self):
         """
@@ -195,8 +200,8 @@ class DutySchedulerEngine:
                 # --- RULE 2: Any Duty (Day D) -> No Heavy Duty (Day D+1) ---
                 # If you do AM or PM, you cannot do 24H or S/B the next day (Strict Rest).
 
-                # 2.1 Fixed Next is S/B -> Day D cannot be Any Duty (if variable)
-                if fixed_next == "S/B":
+                # 2.1 Fixed Next is S/B OR 24H -> Day D cannot be Any Duty (if variable)
+                if fixed_next in ["S/B", "24H"]:
                     for s in self.shifts:
                         if (person, d, s) in self.vars:
                             self.model.Add(self.vars[(person, d, s)] == 0)
@@ -259,6 +264,7 @@ class DutySchedulerEngine:
     def _apply_fairness_objective(self, max_day: int):
         """
         Attempts to distribute points evenly.
+        Calculates ACTUAL points (including multipliers) within the model to ensure true fairness.
         """
         person_points = []
 
@@ -268,43 +274,68 @@ class DutySchedulerEngine:
             # Sum of points earned this month
             earned_expr = 0
             for d in range(1, max_day + 1):
+                # Pre-calculate point value for this specific day/shift combo
+                # Check multiplier conditions (PH, Weekend)
+                try:
+                    dt = pd.Timestamp(year=self.req.year, month=self.req.month, day=d)
+                    is_ph = dt in self.sg_holidays
+                    is_weekend = dt.dayofweek >= 5
+                except Exception:
+                    # Fallback if date is invalid
+                    is_ph = False
+                    is_weekend = False
+
                 for shift in self.shifts:
                     if (person, d, shift) in self.vars:
-                        # Get base points from config
+                        # 1. Get Base Points
                         try:
                             base = self.cfg.points.get_by_type(shift)
                         except ValueError:
-                            # If S/B has no points defined, assume 0
                             base = 0.0
 
-                        # Apply naive multiplier check (simplified for performance)
-                        pts_val = int(base * self.SCALE)
+                        # 2. Apply Multiplier Logic (Must match app/logic.py)
+                        multiplier = 1.0
+                        adder = 0.0
 
-                        earned_expr += self.vars[(person, d, shift)] * pts_val
+                        if is_ph:
+                            if self.cfg.points.ph_is_multiplier:
+                                multiplier = self.cfg.points.ph_multiplier
+                            else:
+                                adder = self.cfg.points.ph_multiplier
+                        elif is_weekend:
+                            if self.cfg.points.weekend_is_multiplier:
+                                multiplier = self.cfg.points.weekend_multiplier
+                            else:
+                                adder = self.cfg.points.weekend_multiplier
+
+                        # Calculate final integer points for this slot
+                        final_pts = int(((base * multiplier) + adder) * self.SCALE)
+
+                        # Add to expression: (Var * Points)
+                        # If Var is 0 (not assigned), adds 0. If 1, adds points.
+                        if final_pts > 0:
+                            earned_expr += self.vars[(person, d, shift)] * final_pts
 
             # Total for person
-            total_var = self.model.NewIntVar(0, 10000, f"total_pts_{person}")
+            total_var = self.model.NewIntVar(0, 1000000, f"total_pts_{person}")  # Increased range for safety
             self.model.Add(total_var == initial_pts + earned_expr)
             person_points.append(total_var)
 
         # Minimize (Max - Min)
-        min_pts = self.model.NewIntVar(0, 10000, "min_points")
-        max_pts = self.model.NewIntVar(0, 10000, "max_points")
+        min_pts = self.model.NewIntVar(0, 1000000, "min_points")
+        max_pts = self.model.NewIntVar(0, 1000000, "max_points")
 
         self.model.AddMinEquality(min_pts, person_points)
         self.model.AddMaxEquality(max_pts, person_points)
 
         self.model.Minimize(max_pts - min_pts)
 
-    def solve(self) -> Optional[Tuple[Dict, Optional[Any]]]:
+    def solve(self) -> Optional[Dict]:
         """
         Executes the solver.
 
         Returns:
-            Tuple: (ScheduleDict, None) if feasible.
-            None: If no solution found.
-
-            ScheduleDict format: {(Person, Day): ShiftString}
+            Optional[Dict]: ScheduleDict format {(Person, Day): ShiftString} if feasible, else None.
         """
         solver = cp_model.CpSolver()
         # Set time limit from config
@@ -323,7 +354,7 @@ class DutySchedulerEngine:
             for key, val in self.req.fixed_assignments.items():
                 if val == "X":
                     schedule[key] = "X"
-                # Note: fixed S/B is now handled by the loop above because it has a variable forced to 1
+                # Note: fixed S/B/Duties is handled by the loop above because it has a variable forced to 1
 
             return schedule, None
         else:

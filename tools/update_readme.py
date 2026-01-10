@@ -15,6 +15,7 @@ def get_passing_versions(artifacts_dir: str) -> List[str]:
         if match:
             versions.append(match.group(1))
 
+    # Sort by version tuple (3, 12) < (3, 13)
     return sorted(versions, key=lambda s: [int(u) for u in s.split(".")])
 
 
@@ -37,6 +38,11 @@ def update_readme(versions: List[str]):
     else:
         ver_str = f"{min_ver}_to_{max_ver}"
 
+    # Regex to find: https://img.shields.io/badge/python-3.12_to_3.14-blue
+    # Captures:
+    # Group 1: prefix (https://img.shields.io/badge/python-)
+    # Group 2: current version string
+    # Group 3: suffix (-blue)
     badge_pattern = r"(https://img\.shields\.io/badge/python-)([\d\._a-zA-Z]+)(-blue)"
     replacement = f"\\g<1>{ver_str}\\g<3>"
 

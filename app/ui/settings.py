@@ -24,16 +24,14 @@ def render_settings():
             pts_am = st.number_input("Pts: AM", value=cfg.points.AM)
             pts_pm = st.number_input("Pts: PM", value=cfg.points.PM)
             pts_24h = st.number_input("Pts: 24H", value=cfg.points.FULL_24H)
-            pts_sb = st.number_input("Pts: S/B", value=cfg.points.SB)
 
         st.divider()
         st.subheader("Multipliers & Logic")
-
-        # Row 1: Weekend & PH
         m1, m2 = st.columns(2)
         with m1:
             wk_mult = st.number_input("Weekend Value", value=cfg.points.weekend_multiplier)
             wk_is_mult = st.toggle("Weekend uses Multiplier?", value=cfg.points.weekend_is_multiplier)
+
         with m2:
             ph_mult = st.number_input("PH Value", value=cfg.points.ph_multiplier)
             ph_is_mult = st.toggle(
@@ -42,61 +40,58 @@ def render_settings():
                 help="On = Multiply base points. Off = Add this value to base points.",
             )
 
-        # Row 2: Friday & PH Eve (New)
-        st.caption("Special Day Logic")
-        m3, m4 = st.columns(2)
-        with m3:
-            fri_mult = st.number_input("Friday Value", value=cfg.points.friday_multiplier)
-            fri_is_mult = st.toggle("Friday uses Multiplier?", value=cfg.points.friday_is_multiplier)
-        with m4:
-            eve_mult = st.number_input("PH Eve Value", value=cfg.points.ph_eve_multiplier)
-            eve_is_mult = st.toggle("PH Eve uses Multiplier?", value=cfg.points.ph_eve_is_multiplier)
-
         st.subheader("Personnel")
         ppl_str = st.text_area("Names (comma separated)", value=", ".join(cfg.personnel))
 
         if st.form_submit_button("💾 Save Settings"):
-            # Clean and deduplicate names
-            new_personnel = sorted(list(set([x.strip() for x in ppl_str.split(",") if x.strip()])))
+            # Preserve order while deduplicating
+            seen = set()
+            new_personnel = []
+            for name in ppl_str.split(","):
+                name = name.strip()
+                if name and name not in seen:
+                    seen.add(name)
+                    new_personnel.append(name)
 
             # Validation: Ensure list is not empty
             if not new_personnel:
                 st.error("Personnel list cannot be empty. Please add at least one name.")
                 return
 
-            # Update Configuration object only on submit
-            cfg.constraints.personnel_needed_per_shift["AM"] = am_req
-            cfg.constraints.personnel_needed_per_shift["PM"] = pm_req
-            cfg.constraints.personnel_needed_per_shift["24H"] = h24_req
-            cfg.constraints.standby_per_day = sb_req
+            # Work on a deep copy to prevent partial mutations on failure
+            cfg_copy = cfg.model_copy(deep=True)
 
-            cfg.points.AM = pts_am
-            cfg.points.PM = pts_pm
-            cfg.points.FULL_24H = pts_24h
-            cfg.points.SB = pts_sb
+            # Update Configuration object on the copy
+            cfg_copy.constraints.personnel_needed_per_shift["AM"] = am_req
+            cfg_copy.constraints.personnel_needed_per_shift["PM"] = pm_req
+            cfg_copy.constraints.personnel_needed_per_shift["24H"] = h24_req
+            cfg_copy.constraints.standby_per_day = sb_req
 
-            cfg.points.weekend_multiplier = wk_mult
-            cfg.points.weekend_is_multiplier = wk_is_mult
-            cfg.points.ph_multiplier = ph_mult
-            cfg.points.ph_is_multiplier = ph_is_mult
+            cfg_copy.points.AM = pts_am
+            cfg_copy.points.PM = pts_pm
+            cfg_copy.points.FULL_24H = pts_24h
 
-            cfg.points.friday_multiplier = fri_mult
-            cfg.points.friday_is_multiplier = fri_is_mult
-            cfg.points.ph_eve_multiplier = eve_mult
-            cfg.points.ph_eve_is_multiplier = eve_is_mult
+            cfg_copy.points.weekend_multiplier = wk_mult
+            cfg_copy.points.weekend_is_multiplier = wk_is_mult
+            cfg_copy.points.ph_multiplier = ph_mult
+            cfg_copy.points.ph_is_multiplier = ph_is_mult
 
-            cfg.personnel = new_personnel
+            cfg_copy.personnel = new_personnel
 
-            # Sync Roster DataFrame with new names if it exists
+            # Sync Roster DataFrame with new names if it exists (on a copy logic if needed,
+            # but syncing returns a new DF anyway)
+            new_roster_df = None
             if "roster_df" in st.session_state and isinstance(st.session_state.roster_df, pd.DataFrame):
-                st.session_state.roster_df = logic.synchronize_roster_index(st.session_state.roster_df, new_personnel)
+                new_roster_df = logic.synchronize_roster_index(st.session_state.roster_df, new_personnel)
 
-            if DataManager.save_config(cfg):
-                st.session_state.config = cfg
-                # User requested a clear/slower notification.
-                # st.success persists until user interaction or next rerun.
-                st.success("✅ Settings Saved Successfully! Roster updated.")
-                # We do NOT rerun immediately here to let the user see the success message.
-                # The state is updated, so if they navigate away or click something else, it will stick.
+            # Attempt Save
+            if DataManager.save_config(cfg_copy):
+                # Only update session state on success
+                st.session_state.config = cfg_copy
+                if new_roster_df is not None:
+                    st.session_state.roster_df = new_roster_df
+
+                st.success("Settings Saved! Roster updated.")
+                st.rerun()
             else:
                 st.error("Failed to save settings. Check logs.")

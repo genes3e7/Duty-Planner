@@ -2,7 +2,7 @@ import statistics
 
 import pytest
 
-from app.constants import ScheduleMode
+from app.constants import ACTIVE_DUTIES, ScheduleMode
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
 from app.models.config import AppConfig
 
@@ -18,7 +18,7 @@ def basic_request():
         year=2025,
         month=1,
         fixed_assignments={},
-        # Changed from ScheduleMode.SHIFT.value to ScheduleMode.SHIFT
+        # Changed to use Enum instance directly per feedback
         day_modes={d: ScheduleMode.SHIFT.value for d in range(1, 32)},
         inactive_days=[],
     )
@@ -106,10 +106,8 @@ def test_solver_fairness_std_dev():
     person_points = {p: 0.0 for p in cfg.personnel}
 
     for (p, _), shift in sched.items():  # Fixed unused variable 'd'
-        if shift in ["AM", "PM", "S/B"]:  # Include S/B in count if it has points (default 0 or handled)
-            # For this test, let's assume simple count equality is what we want to measure,
-            # or rely on config points. Default points: AM=1, PM=1, SB=? (Undefined in PointsConfig usually)
-            # Let's trust the engine's objective function which uses configured points.
+        if shift in ACTIVE_DUTIES:
+            # Trust the engine's objective function which uses configured points.
             try:
                 pts = cfg.points.get_by_type(shift)
             except ValueError:

@@ -20,14 +20,15 @@ def test_config_defaults():
 
 def test_points_config_logic():
     """Test the helper method get_by_type in PointsConfig."""
-    pc = PointsConfig(AM=1.5, PM=2.0, FULL_24H=5.0)
+    pc = PointsConfig(AM=1.5, PM=2.0, FULL_24H=5.0, SB=0.5)
 
     # Test valid keys
     assert pc.get_by_type("AM") == 1.5
     assert pc.get_by_type("PM") == 2.0
     assert pc.get_by_type("24H") == 5.0
+    assert pc.get_by_type("S/B") == 0.5
 
-    # Test invalid key raises ValueError (Updated to match new defensive logic)
+    # Test invalid key raises ValueError
     with pytest.raises(ValueError, match="Unknown shift type"):
         pc.get_by_type("INVALID_SHIFT")
 

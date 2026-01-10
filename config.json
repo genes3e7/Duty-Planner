@@ -1,27 +1,16 @@
 {
     "year": 2026,
-    "month": 3,
+    "month": 2,
     "personnel": [
-        "Alan Hiller",
-        "Alliyah McClain",
-        "Anita McClelland",
-        "Brooklyn Derrick",
-        "Carlton Shearer",
-        "Conner Elam",
-        "Dallin Becerra",
-        "Elisa Branham",
-        "Gianni Tyree",
-        "Isaiah Hite",
-        "Josue Sturgill",
-        "Kailyn Ledbetter",
-        "Makenzie Gutierrez",
-        "Maricela Blanton",
-        "Mohammed Holloway",
-        "Peter Harbin",
-        "Rebeca Saucedo",
-        "Rene Regalado",
-        "Rylee Ramirez",
-        "Sasha Casillas"
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I"
     ],
     "constraints": {
         "personnel_needed_per_shift": {

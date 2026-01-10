@@ -30,6 +30,12 @@ class DataManager:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return AppConfig.model_validate(data)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Config file corrupted (invalid JSON): {e}")
+            return AppConfig.default()
+        except (OSError, IOError) as e:
+            logger.warning(f"Config file I/O error: {e}")
+            return AppConfig.default()
         except Exception as e:
             logger.warning(f"Config load error: {e}")
             return AppConfig.default()
