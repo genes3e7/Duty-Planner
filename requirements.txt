@@ -14,7 +14,7 @@ darkdetect==0.8.0
     # via customtkinter
 et-xmlfile==2.0.0
     # via openpyxl
-holidays==0.87
+holidays==0.88
     # via -r requirements.in
 immutabledict==4.2.2
     # via ortools
