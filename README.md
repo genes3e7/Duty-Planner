@@ -1,4 +1,6 @@
+<!-- BADGES_START -->
 [![Supported Python](https://img.shields.io/badge/python-3.12_to_3.14-blue)](https://www.python.org/downloads/)
+<!-- BADGES_END -->
 
 # **📅 Duty Planner**
 
