@@ -71,6 +71,8 @@ class DataManager:
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(config.to_dict(), f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
 
             # Atomic replacement
             os.replace(tmp_path, filepath)
@@ -97,10 +99,11 @@ class DataManager:
 
         Returns:
             Dict[str, float]: A mapping of {Name: Carry Over Points}.
-                              Returns an empty dict if input is None or invalid.
+                              Returns an empty dict if excel_file is falsy.
 
         Raises:
             ValueError: If required columns ('Name', 'Carry Over') are missing.
+            Exception: Re-raises other parsing errors after logging.
         """
         if not excel_file:
             return {}

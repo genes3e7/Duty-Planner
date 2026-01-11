@@ -5,7 +5,6 @@ A Streamlit-based application for scheduling staff duties. This tool provides an
 <!-- BADGES_START -->
 [![Supported Python](https://img.shields.io/badge/python-3.12_to_3.14-blue)](https://www.python.org/downloads/)
 <!-- BADGES_END -->
-
 ## Features
 
 * **Interactive Planner:** Visual grid to manually assign or view duties.
@@ -141,14 +140,26 @@ The application settings are stored in `config.json` (created on first save). Yo
 
 * **Personnel:** List of names.
 * **Constraints:**
-    * `personnel_needed_per_shift`: Dictionary defining needs (e.g., `{"AM": 1, "PM": 1}`).
-    * `max_consecutive_duties`: Max days a person can work in a row.
+  * `personnel_needed_per_shift`: Dictionary defining needs (e.g., `{"AM": 1, "PM": 1}`).
+  * `max_consecutive_duties`: Max days a person can work in a row.
 * **Points:**
-    * **Base Points:** How many points is a duty worth? (e.g., `24H = 2.0`, `AM = 1.0`).
-    * **Multipliers:** Configure multipliers for Weekends, Public Holidays, etc.
+  * **Base Points:** How many points is a duty worth? (e.g., `24H = 2.0`, `AM = 1.0`).
+  * **Multipliers:** Configure multipliers for Weekends, Public Holidays, etc.
 
 ## Development
 
-* **Tests:** Run `pytest` to execute the test suite.
+* **Dependency Management:** Uses `pip-tools`.
+  * To update deps: `pip-compile requirements.in`
+  * To install dev deps: `pip install -r requirements-dev.txt`
 * **Linting:** Uses `ruff` for linting and formatting.
-* **Dependency Management:** Uses `pip-tools` (`requirements.in`).
+  * Check: `ruff check .`
+  * Format: `ruff format .`
+* **Tests:** Run `pytest` to execute the test suite.
+  * Run with coverage: `pytest --cov=app tests/`
+
+## Testing Methodology
+
+The project employs a robust testing strategy:
+* **Unit Tests (`tests/test_logic.py`, `tests/test_data.py`):** Verify individual components in isolation, mocking external dependencies like file I/O.
+* **Core Logic Tests (`tests/test_core_scheduler.py`):** Validate the solver engine against specific constraints.
+* **Integration Tests (`tests/test_app_integration.py`):** Use Streamlit's `AppTest` framework to simulate user interactions and verify UI state persistence.

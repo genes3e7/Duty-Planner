@@ -6,8 +6,10 @@ Includes boundary tests, error handling, and data transformation checks.
 """
 
 import pandas as pd
+import pytest
 
 from app import logic
+from app.models.config import AppConfig
 
 # Note: default_config fixture is available from conftest.py
 
@@ -41,9 +43,8 @@ def test_generate_empty_schedule_structure():
 
 def test_generate_empty_schedule_invalid_date():
     """Test fallback behavior for invalid dates (e.g., month 13)."""
-    # Assuming the logic defaults to 30 days on error as per docstring
     # logic.py uses pd.Period to determine days in month, which raises error for month 13
-    # It catches this error and returns 30.
+    # It catches this error and returns 30 days default.
     roster, days = logic.generate_empty_schedule(2025, 13, ["A"])
     assert roster.shape == (1, 30)
 
@@ -95,3 +96,40 @@ def test_synchronize_roster_defensive():
     assert "New" in new_df.index
     assert "Old" not in new_df.index
     assert new_df.at["New", "D1"] == ""
+
+
+def test_apply_imported_constraints_logic():
+    """Test applying a dictionary of constraints to the dataframe."""
+    # Initial Roster
+    roster = pd.DataFrame(
+        {"D1": ["", ""], "D2": ["", ""]}, 
+        index=["Alice", "Bob"]
+    )
+    
+    # Import Data: Alice D1=AM, Bob D2=X
+    imported = {
+        "Alice": {1: "AM"},
+        "Bob": {2: "X"}
+    }
+    
+    result = logic.apply_imported_constraints(roster, imported)
+    
+    assert result.at["Alice", "D1"] == "AM"
+    assert result.at["Bob", "D2"] == "X"
+    # Ensure untouched remain empty
+    assert result.at["Alice", "D2"] == ""
+
+
+def test_apply_imported_constraints_partial_match():
+    """Test handling of names that don't exist in the roster."""
+    roster = pd.DataFrame({"D1": [""]}, index=["Alice"])
+    
+    imported = {
+        "Charlie": {1: "AM"},  # Should be ignored
+        "Alice": {1: "PM"}     # Should apply
+    }
+    
+    result = logic.apply_imported_constraints(roster, imported)
+    
+    assert result.at["Alice", "D1"] == "PM"
+    assert "Charlie" not in result.index

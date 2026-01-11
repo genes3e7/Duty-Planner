@@ -19,18 +19,6 @@ def render_settings(config: AppConfig):
     """
     st.title("⚙️ Settings")
 
-    # CSS to hide the +/- buttons on number_input widgets
-    st.markdown(
-        """
-        <style>
-            [data-testid="stNumberInput"] button {
-                display: none;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     # 1. Personnel Management
     st.subheader("Personnel")
     st.caption("Manage the list of staff available for duties.")
@@ -39,7 +27,9 @@ def render_settings(config: AppConfig):
     new_names_str = st.text_area("Names (comma separated)", value=current_names, height=100)
 
     # Update config immediately on change
-    new_list = [n.strip() for n in new_names_str.split(",") if n.strip()]
+    # De-duplicate names using dict keys to preserve order
+    new_list = list(dict.fromkeys([n.strip() for n in new_names_str.split(",") if n.strip()]))
+
     if new_list != config.personnel:
         if not new_list:
             st.warning("Personnel list cannot be empty. At least one staff member is required.")
@@ -53,8 +43,11 @@ def render_settings(config: AppConfig):
     st.subheader("Shift Constraints")
 
     c1, c2, c3 = st.columns(3)
+
+    # Validation Note: We must reassign the whole dict to trigger Pydantic validators
+
     with c1:
-        config.constraints.personnel_needed_per_shift["AM"] = int(
+        val_am = int(
             st.number_input(
                 "AM Staff Needed",
                 min_value=0,
@@ -63,8 +56,14 @@ def render_settings(config: AppConfig):
                 format="%d",
             )
         )
+        if val_am != config.constraints.personnel_needed_per_shift.get("AM"):
+            config.constraints.personnel_needed_per_shift = {
+                **config.constraints.personnel_needed_per_shift,
+                "AM": val_am,
+            }
+
     with c2:
-        config.constraints.personnel_needed_per_shift["PM"] = int(
+        val_pm = int(
             st.number_input(
                 "PM Staff Needed",
                 min_value=0,
@@ -73,8 +72,14 @@ def render_settings(config: AppConfig):
                 format="%d",
             )
         )
+        if val_pm != config.constraints.personnel_needed_per_shift.get("PM"):
+            config.constraints.personnel_needed_per_shift = {
+                **config.constraints.personnel_needed_per_shift,
+                "PM": val_pm,
+            }
+
     with c3:
-        config.constraints.personnel_needed_per_shift["24H"] = int(
+        val_24h = int(
             st.number_input(
                 "24H Staff Needed",
                 min_value=0,
@@ -83,6 +88,11 @@ def render_settings(config: AppConfig):
                 format="%d",
             )
         )
+        if val_24h != config.constraints.personnel_needed_per_shift.get("24H"):
+            config.constraints.personnel_needed_per_shift = {
+                **config.constraints.personnel_needed_per_shift,
+                "24H": val_24h,
+            }
 
     st.markdown("---")
 

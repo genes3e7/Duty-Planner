@@ -53,10 +53,7 @@ def main():
 
         if not unique_versions:
             print("No supported versions found in artifacts.")
-            # If running in CI, we might not want to fail if no tests passed (e.g. all failed),
-            # but usually that means we shouldn't update badges to "nothing".
-            # Let's exit successfully but do nothing.
-            return
+            sys.exit(1)
 
         print(f"Found supported versions: {unique_versions}")
 

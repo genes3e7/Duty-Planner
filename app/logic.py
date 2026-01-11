@@ -110,7 +110,9 @@ def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = 
     return df
 
 
-def apply_imported_constraints(df_roster: pd.DataFrame, imported_data: Dict[str, Dict[int, str]]) -> pd.DataFrame:
+def apply_imported_constraints(
+    df_roster: pd.DataFrame, imported_data: Dict[str, Dict[int, str]]
+) -> Optional[pd.DataFrame]:
     """
     Updates the roster dataframe with imported values.
 
@@ -119,7 +121,7 @@ def apply_imported_constraints(df_roster: pd.DataFrame, imported_data: Dict[str,
         imported_data: Dictionary {Name: {DayInt: Value}} from DataManager.load_constraints.
 
     Returns:
-        pd.DataFrame: The updated DataFrame.
+        Optional[pd.DataFrame]: The updated DataFrame, or None if input roster is None.
     """
     if df_roster is None or not imported_data:
         return df_roster
