@@ -27,6 +27,7 @@ sequenceDiagram
     participant Main as streamlit_app.py
     participant Sidebar as app/ui/sidebar.py
     participant Planner as app/ui/planner.py
+    participant Settings as app/ui/settings.py
     participant Logic as app/logic.py
     participant Data as app/core/data.py
     participant Engine as app/core/scheduler.py
@@ -37,8 +38,23 @@ sequenceDiagram
     activate Sidebar
     Sidebar->>Data: load_config()
     Data-->>Sidebar: AppConfig
-    Sidebar->>Data: load_previous_balance()
-    Data-->>Sidebar: Balance Dict
+    
+    Note over Sidebar: User interacts with Import Features
+    
+    opt Import Previous Balance
+        User->>Sidebar: Uploads .xlsx & Clicks "Confirm"
+        Sidebar->>Data: load_previous_balance(file)
+        Data-->>Sidebar: Balance Dict
+    end
+
+    opt Import Constraints
+        User->>Sidebar: Uploads .xlsx & Clicks "Import Requests"
+        Sidebar->>Data: load_constraints(file)
+        Data-->>Sidebar: Constraints Dict
+        Sidebar->>Logic: apply_imported_constraints(df, constraints)
+        Logic-->>Sidebar: Updated DataFrame
+    end
+
     Sidebar-->>Main: Navigation Selection (Planner/Settings)
     deactivate Sidebar
 
