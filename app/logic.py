@@ -53,10 +53,9 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
     for d in range(1, num_days + 1):
         try:
             dt = pd.Timestamp(year=year, month=month, day=d)
-        except ValueError:
-            # Fallback for invalid dates found during generation (e.g. testing)
-            logger.warning(f"Invalid date generated: {year}-{month}-{d}. Defaulting to {year}-01-01.")
-            dt = pd.Timestamp(year=year, month=1, day=1)
+        except ValueError as e:
+            # Raise error for invalid dates to prevent silent configuration issues
+            raise ValueError(f"Invalid date generated: {year}-{month}-{d}") from e
 
         is_ph = dt in sg_holidays
         mode = C.ScheduleMode.FULL_24H.value if is_ph else C.ScheduleMode.SHIFT.value
@@ -156,7 +155,6 @@ def prepare_solver_request(
 
     valid_staff = set(config.personnel)
     sg_holidays = get_holidays(year)
-    num_days_in_month = len(df_roster.columns)
 
     # 1. Parse Day Configuration & Calculate Weights
     for day_num, row in df_days.iterrows():
@@ -185,10 +183,8 @@ def prepare_solver_request(
             val = df_roster.at[person, day_col]
             if val:
                 day_idx = get_day_num(day_col)
-                if 1 <= day_idx <= num_days_in_month:
+                if day_idx > 0:
                     fixed_assignments[(person, day_idx)] = val
-                elif day_idx > 0:
-                    logger.warning(f"Day index {day_idx} out of range for {person}, skipping")
 
     return SolverRequest(
         staff_ids=config.personnel,
@@ -248,8 +244,7 @@ def calculate_stats(
                 if val in C.ACTIVE_DUTIES:
                     try:
                         current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
-                    except ValueError:
-                        logger.warning(f"Invalid date {config.year}-{config.month}-{day_idx}, skipping")
+                    except Exception:
                         continue
 
                     scaled_pts = config.points.calculate_score(
@@ -268,7 +263,7 @@ def calculate_stats(
     final_stats = []
     for record in summary:
         # Explicitly set Carry Over to Raw Total so imported points are visible
-        # Used by planner.py for fairness calculation (Standard Deviation)
+        # Standard deviation in planner.py uses this column for fairness check.
         record["Carry Over"] = record["Raw Total"] - min_carry
         final_stats.append(record)
 

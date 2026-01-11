@@ -6,6 +6,7 @@ Includes boundary tests, error handling, and data transformation checks.
 """
 
 import pandas as pd
+import pytest
 
 from app import logic
 
@@ -40,11 +41,11 @@ def test_generate_empty_schedule_structure():
 
 
 def test_generate_empty_schedule_invalid_date():
-    """Test fallback behavior for invalid dates (e.g., month 13)."""
-    # logic.py uses pd.Period to determine days in month, which raises error for month 13
-    # It catches this error and returns 30 days default.
-    roster, days = logic.generate_empty_schedule(2025, 13, ["A"])
-    assert roster.shape == (1, 30)
+    """Test that invalid dates (e.g., month 13) raise ValueError."""
+    # The logic now strictly enforces date validity and raises ValueError
+    # instead of silently falling back to a default.
+    with pytest.raises(ValueError, match="Invalid date generated"):
+        logic.generate_empty_schedule(2025, 13, ["A"])
 
 
 def test_calculate_stats_multipliers(default_config):
