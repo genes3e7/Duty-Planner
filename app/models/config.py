@@ -67,19 +67,29 @@ class PointsConfig(BaseModel):
     SB: float = Field(0.0, ge=0, serialization_alias="S/B", validation_alias="S/B")
 
     ph_multiplier: float = Field(2.0, ge=0)
-    ph_eve_multiplier: float = Field(1.5, ge=0)
+    # Split PH Eve into AM/PM/24H
+    ph_eve_am_multiplier: float = Field(1.5, ge=0)
+    ph_eve_pm_multiplier: float = Field(1.5, ge=0)
+    ph_eve_24h_multiplier: float = Field(1.5, ge=0)
+
     weekend_multiplier: float = Field(1.5, ge=0)
 
-    # Friday Split: AM and PM specific configuration
+    # Friday Split: AM, PM, 24H specific configuration
     friday_am_multiplier: float = Field(1.0, ge=0)
     friday_pm_multiplier: float = Field(1.0, ge=0)
+    friday_24h_multiplier: float = Field(1.0, ge=0)
 
     ph_is_multiplier: bool = True
-    ph_eve_is_multiplier: bool = True
+
+    ph_eve_am_is_multiplier: bool = True
+    ph_eve_pm_is_multiplier: bool = True
+    ph_eve_24h_is_multiplier: bool = True
+
     weekend_is_multiplier: bool = True
 
     friday_am_is_multiplier: bool = True
     friday_pm_is_multiplier: bool = True
+    friday_24h_is_multiplier: bool = True
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -153,13 +163,27 @@ class PointsConfig(BaseModel):
                 multiplier = self.ph_multiplier
             else:
                 adder = self.ph_multiplier
+
         elif is_ph_eve:
-            if self.ph_eve_is_multiplier:
-                multiplier = self.ph_eve_multiplier
-            else:
-                adder = self.ph_eve_multiplier
+            # Handle split for PH Eves (AM, PM, 24H)
+            if shift_type == "AM":
+                if self.ph_eve_am_is_multiplier:
+                    multiplier = self.ph_eve_am_multiplier
+                else:
+                    adder = self.ph_eve_am_multiplier
+            elif shift_type == "PM":
+                if self.ph_eve_pm_is_multiplier:
+                    multiplier = self.ph_eve_pm_multiplier
+                else:
+                    adder = self.ph_eve_pm_multiplier
+            elif shift_type == "24H":
+                if self.ph_eve_24h_is_multiplier:
+                    multiplier = self.ph_eve_24h_multiplier
+                else:
+                    adder = self.ph_eve_24h_multiplier
+
         elif is_friday:
-            # Handle AM vs PM split for Fridays
+            # Handle split for Fridays (AM, PM, 24H)
             if shift_type == "AM":
                 if self.friday_am_is_multiplier:
                     multiplier = self.friday_am_multiplier
@@ -170,7 +194,11 @@ class PointsConfig(BaseModel):
                     multiplier = self.friday_pm_multiplier
                 else:
                     adder = self.friday_pm_multiplier
-            # If 24H/SB on Friday, we treat it as standard (or fall through to Weekend check if Fri was Sat)
+            elif shift_type == "24H":
+                if self.friday_24h_is_multiplier:
+                    multiplier = self.friday_24h_multiplier
+                else:
+                    adder = self.friday_24h_multiplier
 
         # Only check weekend if we haven't already applied a higher priority rule (like PH)
         elif is_weekend:

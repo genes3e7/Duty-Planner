@@ -9,6 +9,7 @@ import logging
 
 import streamlit as st
 
+from app import logic
 from app.core.data import DataManager
 from app.models.config import AppConfig
 
@@ -64,13 +65,70 @@ def render_sidebar() -> str:
 
     st.sidebar.divider()
 
-    # 3. Import History (Stubbed)
-    st.sidebar.subheader("Import Previous")
-    uploaded_file = st.sidebar.file_uploader("Upload Previous Roster (.xlsx)", type=["xlsx"])
+    # 3. Import Features
+    st.sidebar.subheader("Import Data")
 
-    if uploaded_file:
-        # Stub logic for now - typically you'd save to temp and load
-        st.info("Import feature enabled but requires backend implementation to handle file stream.")
-        # Logic to actually process would go here using DataManager.load_previous_balance
+    # --- A. Carry Forward & Init ---
+    with st.sidebar.expander("1. Initialise / Carry Forward", expanded=False):
+        st.caption("Upload previous month's roster to import 'Carry Over' points and initialize personnel.")
+        uploaded_cf = st.file_uploader("Upload .xlsx", type=["xlsx"], key="u_cf")
+
+        if uploaded_cf:
+            if st.button("Confirm & Initialise", key="btn_cf"):
+                try:
+                    # 1. Load Balance
+                    balance_data = DataManager.load_previous_balance(uploaded_cf)
+
+                    if not balance_data:
+                        st.error("No valid data found in file.")
+                    else:
+                        # 2. Update Session Balance
+                        st.session_state.prev_balance = balance_data
+
+                        # 3. Overwrite Personnel List
+                        new_names = list(balance_data.keys())
+                        if new_names:
+                            config.personnel = new_names
+                            st.success(f"Loaded {len(new_names)} staff & points.")
+
+                            # 4. Force Roster Re-initialization
+                            # Setting this to None causes planner.py to rebuild the grid
+                            # with the new personnel list on next render.
+                            st.session_state.loaded_date = None
+                        else:
+                            st.warning("File loaded but contained no personnel data.")
+
+                except Exception as e:
+                    st.error(f"Import failed: {e}")
+
+    # --- B. Constraints Import ---
+    with st.sidebar.expander("2. Import Constraints", expanded=False):
+        st.caption("Batch upload constraints (e.g. 'X', 'AM') for the current roster.")
+        uploaded_const = st.file_uploader("Upload .xlsx", type=["xlsx"], key="u_const")
+
+        if uploaded_const:
+            if st.button("Import Requests", key="btn_const"):
+                # Check if roster exists to apply constraints to
+                if "roster_df" not in st.session_state or st.session_state.roster_df is None:
+                    # Try to initialize if we have date context, otherwise warn
+                    if st.session_state.loaded_date is None:
+                        # Initialize silently if possible
+                        r_df, d_df = logic.generate_empty_schedule(config.year, config.month, config.personnel)
+                        st.session_state.roster_df = r_df
+                        st.session_state.day_config_df = d_df
+                        st.session_state.loaded_date = (config.year, config.month)
+
+                try:
+                    # Load and Apply
+                    constraints = DataManager.load_constraints(uploaded_const)
+                    if constraints:
+                        updated_df = logic.apply_imported_constraints(st.session_state.roster_df, constraints)
+                        st.session_state.roster_df = updated_df
+                        st.session_state.roster_version = st.session_state.get("roster_version", 0) + 1
+                        st.success("Constraints applied successfully!")
+                    else:
+                        st.warning("No constraints found or file empty.")
+                except Exception as e:
+                    st.error(f"Constraint import failed: {e}")
 
     return page

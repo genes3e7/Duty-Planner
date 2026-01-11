@@ -8,18 +8,19 @@ import logging
 import sys
 
 
-def setup_logger(name: str = "app") -> logging.Logger:
+def setup_logger(name: str = "app", level: int = logging.INFO) -> logging.Logger:
     """
     Configures and returns a logger instance.
 
     Args:
         name (str): Name of the logger.
+        level (int): Logging level (default: logging.INFO).
 
     Returns:
         logging.Logger: Configured logger.
     """
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(level)
     logger.propagate = False  # Prevent propagation to avoid duplicates
 
     # Check if handlers already exist to avoid duplicates

@@ -17,3 +17,11 @@ def test_save_config_success():
                 success = DataManager.save_config(cfg)
                 assert success is True
                 mock_replace.assert_called_once()
+
+
+def test_save_config_failure():
+    """Test that save returns False on write error."""
+    cfg = AppConfig.default()
+    with patch("builtins.open", side_effect=IOError("disk full")):
+        success = DataManager.save_config(cfg)
+        assert success is False

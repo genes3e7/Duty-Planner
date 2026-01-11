@@ -194,10 +194,24 @@ def render_planner(config: AppConfig):
         st.session_state.roster_df, st.session_state.day_config_df, config, st.session_state.prev_balance
     )
 
+    if stats_df.empty or "Month Pts" not in stats_df.columns:
+        total_month = 0.0
+        avg_month = 0.0
+        std_total = 0.0
+    else:
+        total_month = stats_df["Month Pts"].sum()
+        avg_month = stats_df["Month Pts"].mean()
+
+        # Fairness Metric: Standard Deviation should be based on CUMULATIVE points (Carry Over)
+        # to ensure long-term balance, not just monthly balance.
+        std_total = stats_df["Carry Over"].std()
+        if pd.isna(std_total):
+            std_total = 0.0
+
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Points", f"{stats_df['Month Pts'].sum():.1f}")
-    c2.metric("Avg Points", f"{stats_df['Month Pts'].mean():.2f}")
-    c3.metric("Std Dev", f"{stats_df['Month Pts'].std():.2f}")
+    c1.metric("Month Pts", f"{total_month:.1f}")
+    c2.metric("Avg Pts", f"{avg_month:.2f}")
+    c3.metric("Std Dev (Total)", f"{std_total:.2f}", help="Standard Deviation of cumulative Carry Over points.")
 
     st.dataframe(stats_df, width="stretch", hide_index=True)
 

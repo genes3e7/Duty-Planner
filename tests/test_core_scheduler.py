@@ -33,7 +33,7 @@ def test_variable_creation(basic_setup):
     """Test that solver variables are created correctly."""
     config, req = basic_setup
     engine = DutySchedulerEngine(config, {}, req)
-    engine._create_variables()
+    engine.build_model()
 
     # We expect vars for A and B, Day 1, for all shifts (AM, PM, 24H, S/B)
     assert ("A", 1, "AM") in engine.vars

@@ -99,7 +99,7 @@ sequenceDiagram
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/genes3e7/duty-planner.git](https://github.com/genes3e7/duty-planner.git)
+    git clone https://github.com/genes3e7/duty-planner.git
     cd duty-planner
     ```
 

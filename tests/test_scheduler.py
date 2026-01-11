@@ -72,9 +72,11 @@ def test_solver_fixed_assignment_respect(basic_request):
 
     engine = DutySchedulerEngine(cfg, {}, req)
     engine.build_model()
-    schedule, _ = engine.solve()
+    result = engine.solve()
 
-    assert schedule is not None
+    assert result is not None
+    schedule, _ = result
+
     # Ensure A is not working on day 1
     # X means no shift, so A should not appear in assignment list for Day 1
     assert ("A", 1) not in schedule
@@ -93,26 +95,18 @@ def test_solve_basic_feasible(basic_request):
     assert len(schedule) > 0
 
 
-def test_solver_produces_schedule_with_holiday():
+def test_solver_produces_schedule_with_holiday(basic_request):
     """
     Tests that the solver can handle a month with holidays (June 2025)
     and produces a schedule.
     """
-    cfg = AppConfig.default()
-    cfg.personnel = ["A", "B", "C", "D", "E", "F"]
+    # Reuse basic_request fixture but modify for June
+    cfg, req = basic_request
 
-    # June 2025 has 30 days.
-    day_modes = {d: ScheduleMode.SHIFT.value for d in range(1, 31)}
-
-    req = SolverRequest(
-        staff_ids=cfg.personnel,
-        year=2025,
-        month=6,  # June
-        fixed_assignments={},
-        day_modes=day_modes,
-        inactive_days=[],
-        shift_weights={},
-    )
+    # June 2025 has 30 days
+    req.year = 2025
+    req.month = 6
+    req.day_modes = {d: ScheduleMode.SHIFT.value for d in range(1, 31)}
 
     engine = DutySchedulerEngine(cfg, {}, req)
     engine.build_model()

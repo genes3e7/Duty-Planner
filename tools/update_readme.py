@@ -12,6 +12,7 @@ Usage:
 import os
 import re
 import sys
+from urllib.parse import quote
 
 
 def main():
@@ -64,7 +65,10 @@ def main():
         # Uses img.shields.io for badges
         badges = []
         for v in unique_versions:
-            badge = f"![Python {v}](https://img.shields.io/badge/python-{v}-blue?logo=python&logoColor=white)"
+            # Split URL construction to satisfy line length limit (E501)
+            safe_v = quote(v, safe="")
+            url = f"https://img.shields.io/badge/python-{safe_v}-blue?logo=python&logoColor=white"
+            badge = f"![Python {v}]({url})"
             badges.append(badge)
 
         badges_md = " ".join(badges)
@@ -78,9 +82,8 @@ def main():
             content = f.read()
 
         # Regex to find and replace the existing badge section
-        # Looks for <!-- BADGES_START --> ... <!-- BADGES_END -->
-        # Updated to be flexible with whitespace inside comments
-        pattern = r"(<!--\s*BADGES_START\s*-->)(.*?)(<!--\s*BADGES_END\s*-->)"
+        # Looks for ... # Updated to be flexible with whitespace inside comments
+        pattern = r"()(.*?)()"
 
         match = re.search(pattern, content, re.DOTALL)
         if match:
@@ -90,7 +93,7 @@ def main():
                 f.write(new_content)
             print("README.md updated successfully with badges.")
         else:
-            print("Error: Badge markers <!-- BADGES_START --> ... <!-- BADGES_END --> not found in README.md")
+            print("Error: Badge markers ... not found in README.md")
             print("--- Debug: README Start ---")
             print(content[:500])
             print("--- Debug: README End ---")

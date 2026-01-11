@@ -6,6 +6,7 @@ It bridges the Gap between the Streamlit UI (View) and the Data/Scheduler (Model
 It handles data transformation, safe parsing, and orchestrating the solving process.
 """
 
+import calendar
 import io
 import logging
 import re
@@ -26,13 +27,10 @@ logger = logging.getLogger(__name__)
 
 def get_day_num(col_name: str) -> int:
     """Safely extracts the day integer from a column string."""
-    try:
-        match = re.match(r"^D(\d+)$", str(col_name))
-        if match:
-            return int(match.group(1))
-        return 0
-    except ValueError:
-        return 0
+    match = re.match(r"^D(\d+)$", str(col_name))
+    if match:
+        return int(match.group(1))
+    return 0
 
 
 def get_holidays(year: int) -> holidays.HolidayBase:
@@ -57,7 +55,13 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
         try:
             dt = pd.Timestamp(year=year, month=month, day=d)
         except ValueError:
-            dt = pd.Timestamp(year=year, month=1, day=d)
+            # Clamp to the last valid day of the month if day is out of range
+            try:
+                last_day = calendar.monthrange(year, month)[1]
+                dt = pd.Timestamp(year=year, month=month, day=last_day)
+            except (ValueError, IndexError):
+                # Fallback if month is completely invalid (though generally caught earlier)
+                dt = pd.Timestamp(year=year, month=1, day=1)
 
         is_ph = dt in sg_holidays
         mode = C.ScheduleMode.FULL_24H.value if is_ph else C.ScheduleMode.SHIFT.value
@@ -87,7 +91,7 @@ def synchronize_roster_index(df_roster: Optional[pd.DataFrame], new_personnel: L
     if df_roster is None:
         return None
     new_df = df_roster.reindex(index=new_personnel, fill_value="")
-    return new_df.fillna("")
+    return new_df
 
 
 def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = False) -> Optional[pd.DataFrame]:
@@ -108,6 +112,34 @@ def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = 
 
         for col in df.columns:
             df[col] = df[col].apply(keep_x)
+
+    return df
+
+
+def apply_imported_constraints(df_roster: pd.DataFrame, imported_data: Dict[str, Dict[int, str]]) -> pd.DataFrame:
+    """
+    Updates the roster dataframe with imported values.
+
+    Args:
+        df_roster: The existing pandas DataFrame for the roster.
+        imported_data: Dictionary {Name: {DayInt: Value}} from DataManager.load_constraints.
+
+    Returns:
+        pd.DataFrame: The updated DataFrame.
+    """
+    if df_roster is None or not imported_data:
+        return df_roster
+
+    # Create a copy to avoid unintended mutation if used elsewhere
+    df = df_roster.copy()
+
+    for name, day_map in imported_data.items():
+        if name in df.index:
+            for day_num, val in day_map.items():
+                col_name = f"D{day_num}"
+                # Ensure the column exists in the current month structure
+                if col_name in df.columns:
+                    df.at[name, col_name] = val
 
     return df
 
@@ -143,7 +175,7 @@ def prepare_solver_request(
                 w = config.points.calculate_score(current_date, shift, scale=SCALE, holidays_obj=sg_holidays)
                 shift_weights[(day_num, shift)] = w
         except ValueError:
-            pass
+            logger.warning(f"Failed to calculate weights for day {day_num}: invalid date")
 
     # 2. Parse Roster Grid (Fixed Constraints)
     for person in df_roster.index:
@@ -234,6 +266,7 @@ def calculate_stats(
         summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})
         raw_carry_overs.append(raw_total)
 
+    # Normalization: Subtract minimum score to keep numbers manageable in Solver
     min_carry = min(raw_carry_overs) if raw_carry_overs else 0.0
     final_stats = []
     for record in summary:
