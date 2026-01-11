@@ -41,7 +41,11 @@ def render_settings(config: AppConfig):
     # Update config immediately on change
     new_list = [n.strip() for n in new_names_str.split(",") if n.strip()]
     if new_list != config.personnel:
-        config.personnel = new_list
+        if not new_list:
+            st.warning("Personnel list cannot be empty. At least one staff member is required.")
+        else:
+            config.personnel = new_list
+        # We don't rerun here to allow bulk edits, but data binds to the object reference
 
     st.markdown("---")
 
@@ -50,16 +54,34 @@ def render_settings(config: AppConfig):
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        config.constraints.personnel_needed_per_shift["AM"] = st.number_input(
-            "AM Staff Needed", min_value=0, value=config.constraints.personnel_needed_per_shift.get("AM", 1)
+        config.constraints.personnel_needed_per_shift["AM"] = int(
+            st.number_input(
+                "AM Staff Needed",
+                min_value=0,
+                value=config.constraints.personnel_needed_per_shift.get("AM", 1),
+                step=1,
+                format="%d",
+            )
         )
     with c2:
-        config.constraints.personnel_needed_per_shift["PM"] = st.number_input(
-            "PM Staff Needed", min_value=0, value=config.constraints.personnel_needed_per_shift.get("PM", 1)
+        config.constraints.personnel_needed_per_shift["PM"] = int(
+            st.number_input(
+                "PM Staff Needed",
+                min_value=0,
+                value=config.constraints.personnel_needed_per_shift.get("PM", 1),
+                step=1,
+                format="%d",
+            )
         )
     with c3:
-        config.constraints.personnel_needed_per_shift["24H"] = st.number_input(
-            "24H Staff Needed", min_value=0, value=config.constraints.personnel_needed_per_shift.get("24H", 1)
+        config.constraints.personnel_needed_per_shift["24H"] = int(
+            st.number_input(
+                "24H Staff Needed",
+                min_value=0,
+                value=config.constraints.personnel_needed_per_shift.get("24H", 1),
+                step=1,
+                format="%d",
+            )
         )
 
     st.markdown("---")
@@ -70,22 +92,22 @@ def render_settings(config: AppConfig):
     with st.expander("Base Points"):
         p1, p2, p3, p4 = st.columns(4)
         with p1:
-            config.points.AM = st.number_input("AM Pts", value=config.points.AM, format="%.1f")
+            config.points.AM = st.number_input("AM Pts", value=config.points.AM)
         with p2:
-            config.points.PM = st.number_input("PM Pts", value=config.points.PM, format="%.1f")
+            config.points.PM = st.number_input("PM Pts", value=config.points.PM)
         with p3:
-            config.points.FULL_24H = st.number_input("24H Pts", value=config.points.FULL_24H, format="%.1f")
+            config.points.FULL_24H = st.number_input("24H Pts", value=config.points.FULL_24H)
         with p4:
-            config.points.SB = st.number_input("Standby Pts", value=config.points.SB, format="%.1f")
+            config.points.SB = st.number_input("Standby Pts", value=config.points.SB)
 
     with st.expander("Multipliers", expanded=True):
         st.caption("Multipliers scale the base points (e.g. 2x). If unchecked, the value is added (e.g. +2).")
 
-        # Row 1: Public Holidays (General)
+        # Row 1: Public Holidays & Eves
         st.markdown("**Public Holidays**")
         ph1, ph2 = st.columns(2)
         with ph1:
-            config.points.ph_multiplier = st.number_input("PH Value", value=config.points.ph_multiplier, format="%.1f")
+            config.points.ph_multiplier = st.number_input("PH Value", value=config.points.ph_multiplier)
         with ph2:
             config.points.ph_is_multiplier = st.checkbox("Is Multiplier? (PH)", value=config.points.ph_is_multiplier)
 
@@ -98,7 +120,7 @@ def render_settings(config: AppConfig):
         with eve1:
             st.markdown("##### AM")
             config.points.ph_eve_am_multiplier = st.number_input(
-                "Value (Eve AM)", value=config.points.ph_eve_am_multiplier, format="%.1f"
+                "Value (Eve AM)", value=config.points.ph_eve_am_multiplier
             )
             config.points.ph_eve_am_is_multiplier = st.checkbox(
                 "Multiply? (Eve AM)", value=config.points.ph_eve_am_is_multiplier
@@ -107,7 +129,7 @@ def render_settings(config: AppConfig):
         with eve2:
             st.markdown("##### PM")
             config.points.ph_eve_pm_multiplier = st.number_input(
-                "Value (Eve PM)", value=config.points.ph_eve_pm_multiplier, format="%.1f"
+                "Value (Eve PM)", value=config.points.ph_eve_pm_multiplier
             )
             config.points.ph_eve_pm_is_multiplier = st.checkbox(
                 "Multiply? (Eve PM)", value=config.points.ph_eve_pm_is_multiplier
@@ -116,7 +138,7 @@ def render_settings(config: AppConfig):
         with eve3:
             st.markdown("##### 24H")
             config.points.ph_eve_24h_multiplier = st.number_input(
-                "Value (Eve 24H)", value=config.points.ph_eve_24h_multiplier, format="%.1f"
+                "Value (Eve 24H)", value=config.points.ph_eve_24h_multiplier
             )
             config.points.ph_eve_24h_is_multiplier = st.checkbox(
                 "Multiply? (Eve 24H)", value=config.points.ph_eve_24h_is_multiplier
@@ -128,9 +150,7 @@ def render_settings(config: AppConfig):
         st.markdown("**Weekends**")
         w1, w2 = st.columns(2)
         with w1:
-            config.points.weekend_multiplier = st.number_input(
-                "Weekend Value", value=config.points.weekend_multiplier, format="%.1f"
-            )
+            config.points.weekend_multiplier = st.number_input("Weekend Value", value=config.points.weekend_multiplier)
         with w2:
             config.points.weekend_is_multiplier = st.checkbox(
                 "Is Multiplier? (Wknd)", value=config.points.weekend_is_multiplier
@@ -146,7 +166,7 @@ def render_settings(config: AppConfig):
         with f1:
             st.markdown("##### AM")
             config.points.friday_am_multiplier = st.number_input(
-                "Value (Fri AM)", value=config.points.friday_am_multiplier, format="%.1f"
+                "Value (Fri AM)", value=config.points.friday_am_multiplier
             )
             config.points.friday_am_is_multiplier = st.checkbox(
                 "Multiply? (Fri AM)", value=config.points.friday_am_is_multiplier
@@ -156,7 +176,7 @@ def render_settings(config: AppConfig):
         with f2:
             st.markdown("##### PM")
             config.points.friday_pm_multiplier = st.number_input(
-                "Value (Fri PM)", value=config.points.friday_pm_multiplier, format="%.1f"
+                "Value (Fri PM)", value=config.points.friday_pm_multiplier
             )
             config.points.friday_pm_is_multiplier = st.checkbox(
                 "Multiply? (Fri PM)", value=config.points.friday_pm_is_multiplier
@@ -166,7 +186,7 @@ def render_settings(config: AppConfig):
         with f3:
             st.markdown("##### 24H")
             config.points.friday_24h_multiplier = st.number_input(
-                "Value (Fri 24H)", value=config.points.friday_24h_multiplier, format="%.1f"
+                "Value (Fri 24H)", value=config.points.friday_24h_multiplier
             )
             config.points.friday_24h_is_multiplier = st.checkbox(
                 "Multiply? (Fri 24H)", value=config.points.friday_24h_is_multiplier

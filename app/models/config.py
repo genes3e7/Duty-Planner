@@ -67,6 +67,7 @@ class PointsConfig(BaseModel):
     SB: float = Field(0.0, ge=0, serialization_alias="S/B", validation_alias="S/B")
 
     ph_multiplier: float = Field(2.0, ge=0)
+
     # Split PH Eve into AM/PM/24H
     ph_eve_am_multiplier: float = Field(1.5, ge=0)
     ph_eve_pm_multiplier: float = Field(1.5, ge=0)
@@ -74,7 +75,7 @@ class PointsConfig(BaseModel):
 
     weekend_multiplier: float = Field(1.5, ge=0)
 
-    # Friday Split: AM, PM, 24H specific configuration
+    # Friday Split: AM, PM, and 24H specific configuration
     friday_am_multiplier: float = Field(1.0, ge=0)
     friday_pm_multiplier: float = Field(1.0, ge=0)
     friday_24h_multiplier: float = Field(1.0, ge=0)
@@ -163,7 +164,6 @@ class PointsConfig(BaseModel):
                 multiplier = self.ph_multiplier
             else:
                 adder = self.ph_multiplier
-
         elif is_ph_eve:
             # Handle split for PH Eves (AM, PM, 24H)
             if shift_type == "AM":
@@ -181,7 +181,6 @@ class PointsConfig(BaseModel):
                     multiplier = self.ph_eve_24h_multiplier
                 else:
                     adder = self.ph_eve_24h_multiplier
-
         elif is_friday:
             # Handle split for Fridays (AM, PM, 24H)
             if shift_type == "AM":
@@ -236,7 +235,8 @@ class AppConfig(BaseModel):
     @classmethod
     def default(cls) -> "AppConfig":
         """
-        Creates a default configuration instance with dummy data.
+        Creates a default configuration instance with dummy sample data.
+        Useful for demos or when no config file exists.
 
         Returns:
             AppConfig: A pre-populated configuration object.

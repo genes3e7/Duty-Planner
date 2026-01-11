@@ -12,7 +12,6 @@ Usage:
 import os
 import re
 import sys
-from urllib.parse import quote
 
 
 def main():
@@ -65,10 +64,7 @@ def main():
         # Uses img.shields.io for badges
         badges = []
         for v in unique_versions:
-            # Split URL construction to satisfy line length limit (E501)
-            safe_v = quote(v, safe="")
-            url = f"https://img.shields.io/badge/python-{safe_v}-blue?logo=python&logoColor=white"
-            badge = f"![Python {v}]({url})"
+            badge = f"![Python {v}](https://img.shields.io/badge/python-{v}-blue?logo=python&logoColor=white)"
             badges.append(badge)
 
         badges_md = " ".join(badges)

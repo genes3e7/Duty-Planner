@@ -6,7 +6,6 @@ It bridges the Gap between the Streamlit UI (View) and the Data/Scheduler (Model
 It handles data transformation, safe parsing, and orchestrating the solving process.
 """
 
-import calendar
 import io
 import logging
 import re
@@ -55,13 +54,8 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
         try:
             dt = pd.Timestamp(year=year, month=month, day=d)
         except ValueError:
-            # Clamp to the last valid day of the month if day is out of range
-            try:
-                last_day = calendar.monthrange(year, month)[1]
-                dt = pd.Timestamp(year=year, month=month, day=last_day)
-            except (ValueError, IndexError):
-                # Fallback if month is completely invalid (though generally caught earlier)
-                dt = pd.Timestamp(year=year, month=1, day=1)
+            # Fallback for invalid dates found during generation (e.g. testing)
+            dt = pd.Timestamp(year=year, month=1, day=1)
 
         is_ph = dt in sg_holidays
         mode = C.ScheduleMode.FULL_24H.value if is_ph else C.ScheduleMode.SHIFT.value
@@ -91,7 +85,7 @@ def synchronize_roster_index(df_roster: Optional[pd.DataFrame], new_personnel: L
     if df_roster is None:
         return None
     new_df = df_roster.reindex(index=new_personnel, fill_value="")
-    return new_df
+    return new_df.fillna("")
 
 
 def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = False) -> Optional[pd.DataFrame]:
@@ -174,8 +168,9 @@ def prepare_solver_request(
             for shift in ["AM", "PM", "24H", "S/B"]:
                 w = config.points.calculate_score(current_date, shift, scale=SCALE, holidays_obj=sg_holidays)
                 shift_weights[(day_num, shift)] = w
-        except ValueError:
-            logger.warning(f"Failed to calculate weights for day {day_num}: invalid date")
+        except ValueError as e:
+            logger.error(f"Invalid date configuration for Year={year}, Month={month}, Day={day_num}: {e}")
+            raise ValueError(f"Invalid date encountered: {year}-{month}-{day_num}") from e
 
     # 2. Parse Roster Grid (Fixed Constraints)
     for person in df_roster.index:
@@ -185,12 +180,9 @@ def prepare_solver_request(
         for day_col in df_roster.columns:
             val = df_roster.at[person, day_col]
             if val:
-                try:
-                    day_idx = get_day_num(day_col)
-                    if day_idx > 0:
-                        fixed_assignments[(person, day_idx)] = val
-                except ValueError:
-                    continue
+                day_idx = get_day_num(day_col)
+                if day_idx > 0:
+                    fixed_assignments[(person, day_idx)] = val
 
     return SolverRequest(
         staff_ids=config.personnel,
@@ -236,10 +228,7 @@ def calculate_stats(
 
         if df_roster is not None and person in df_roster.index:
             for day_col in df_roster.columns:
-                try:
-                    day_idx = get_day_num(day_col)
-                except ValueError:
-                    continue
+                day_idx = get_day_num(day_col)
                 if day_idx <= 0:
                     continue
 
@@ -266,10 +255,11 @@ def calculate_stats(
         summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})
         raw_carry_overs.append(raw_total)
 
-    # Normalization: Subtract minimum score to keep numbers manageable in Solver
     min_carry = min(raw_carry_overs) if raw_carry_overs else 0.0
     final_stats = []
     for record in summary:
+        # Explicitly set Carry Over to Raw Total so imported points are visible
+        # Standard deviation in planner.py uses this column for fairness check.
         record["Carry Over"] = record["Raw Total"] - min_carry
         final_stats.append(record)
 

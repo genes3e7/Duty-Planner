@@ -12,9 +12,9 @@ A Streamlit-based application for scheduling staff duties. This tool provides an
 * **Automated Scheduling:** Uses constraint programming (OR-Tools) to auto-fill the roster while respecting rules.
 * **Fairness Optimization:** Attempts to balance points (workload) across all staff, considering carried-over balances.
 * **Configurable Rules:**
-    * Set daily manpower needs (AM, PM, 24H, Standby).
-    * Define point values for different shifts.
-    * Apply multipliers for weekends and public holidays.
+  * Set daily manpower needs (AM, PM, 24H, Standby).
+  * Define point values for different shifts.
+  * Apply multipliers for weekends and public holidays.
 * **Excel Export:** Download the final roster and statistics as an Excel file.
 
 ## Architecture

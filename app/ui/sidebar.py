@@ -7,6 +7,7 @@ Handles the sidebar navigation and configuration inputs.
 import datetime
 import logging
 
+import pandas as pd
 import streamlit as st
 
 from app import logic
@@ -46,13 +47,13 @@ def render_sidebar() -> str:
 
     col1, col2 = st.sidebar.columns(2)
     with col1:
-        sel_year = st.number_input("Year", min_value=2000, max_value=2100, value=default_date.year)
+        sel_year = st.number_input("Year", min_value=2000, max_value=2100, value=default_date.year, step=1)
     with col2:
-        sel_month = st.number_input("Month", min_value=1, max_value=12, value=default_date.month)
+        sel_month = st.number_input("Month", min_value=1, max_value=12, value=default_date.month, step=1)
 
     if sel_year != config.year or sel_month != config.month:
-        config.year = sel_year
-        config.month = sel_month
+        config.year = int(sel_year)
+        config.month = int(sel_month)
         # Invalidate planner cache if date changes
         st.session_state.loaded_date = None
 
@@ -92,14 +93,15 @@ def render_sidebar() -> str:
                             st.success(f"Loaded {len(new_names)} staff & points.")
 
                             # 4. Force Roster Re-initialization
-                            # Setting this to None causes planner.py to rebuild the grid
-                            # with the new personnel list on next render.
                             st.session_state.loaded_date = None
                         else:
                             st.warning("File loaded but contained no personnel data.")
 
-                except Exception as e:
+                except (ValueError, pd.errors.EmptyDataError) as e:
                     st.error(f"Import failed: {e}")
+                except Exception as e:
+                    logger.exception("Unexpected error during carry-forward import")
+                    st.error(f"Unexpected error: {e}")
 
     # --- B. Constraints Import ---
     with st.sidebar.expander("2. Import Constraints", expanded=False):
@@ -110,7 +112,7 @@ def render_sidebar() -> str:
             if st.button("Import Requests", key="btn_const"):
                 # Check if roster exists to apply constraints to
                 if "roster_df" not in st.session_state or st.session_state.roster_df is None:
-                    # Try to initialize if we have date context, otherwise warn
+                    # Try to initialize if we have date context
                     if st.session_state.loaded_date is None:
                         # Initialize silently if possible
                         r_df, d_df = logic.generate_empty_schedule(config.year, config.month, config.personnel)
@@ -128,7 +130,10 @@ def render_sidebar() -> str:
                         st.success("Constraints applied successfully!")
                     else:
                         st.warning("No constraints found or file empty.")
-                except Exception as e:
+                except (ValueError, pd.errors.EmptyDataError) as e:
                     st.error(f"Constraint import failed: {e}")
+                except Exception as e:
+                    logger.exception("Unexpected error during constraint import")
+                    st.error(f"Unexpected error: {e}")
 
     return page

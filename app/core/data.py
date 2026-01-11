@@ -73,10 +73,7 @@ class DataManager:
                 json.dump(config.to_dict(), f, indent=4)
 
             # Atomic replacement
-            if os.path.exists(filepath):
-                os.replace(tmp_path, filepath)
-            else:
-                os.rename(tmp_path, filepath)
+            os.replace(tmp_path, filepath)
 
             logger.info("Configuration saved successfully.")
             return True

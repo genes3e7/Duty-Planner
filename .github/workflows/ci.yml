@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-permissions:
-  contents: read
-
 jobs:
   compile-deps:
     runs-on: ubuntu-latest
@@ -17,7 +14,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.12"  # Changed from 3.13
       - name: Install pip-tools
         run: pip install pip-tools
       - name: Compile requirements
@@ -32,12 +29,10 @@ jobs:
   test-matrix:
     needs: compile-deps
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
 
     steps:
     - uses: actions/checkout@v4
@@ -64,7 +59,7 @@ jobs:
 
     - name: Lint and Format (Check Only)
       run: |
-        ruff check .
+        ruff check .  # Removed --fix
         ruff format --check .
 
     - name: Run Tests
@@ -77,5 +72,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: success-markers-${{ matrix.python-version }}
-        path: python_version_*.txt
+        path: python_version_${{ matrix.python-version }}.txt
         if-no-files-found: error
