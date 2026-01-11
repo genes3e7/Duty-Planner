@@ -105,9 +105,13 @@ def render_settings(config: AppConfig):
         st.markdown("**Public Holidays**")
         ph1, ph2 = st.columns(2)
         with ph1:
-            config.points.ph_multiplier = st.number_input("PH Value", value=config.points.ph_multiplier)
+            val_ph = st.number_input("PH Value", value=config.points.ph_multiplier)
+            if val_ph != config.points.ph_multiplier:
+                config.points = config.points.model_copy(update={"ph_multiplier": val_ph})
         with ph2:
-            config.points.ph_is_multiplier = st.checkbox("Is Multiplier? (PH)", value=config.points.ph_is_multiplier)
+            val_ph_is_mult = st.checkbox("Is Multiplier? (PH)", value=config.points.ph_is_multiplier)
+            if val_ph_is_mult != config.points.ph_is_multiplier:
+                config.points = config.points.model_copy(update={"ph_is_multiplier": val_ph_is_mult})
 
         st.divider()
 
@@ -117,30 +121,33 @@ def render_settings(config: AppConfig):
 
         with eve1:
             st.markdown("##### AM")
-            config.points.ph_eve_am_multiplier = st.number_input(
-                "Value (Eve AM)", value=config.points.ph_eve_am_multiplier
-            )
-            config.points.ph_eve_am_is_multiplier = st.checkbox(
-                "Multiply? (Eve AM)", value=config.points.ph_eve_am_is_multiplier
-            )
+            val_eve_am = st.number_input("Value (Eve AM)", value=config.points.ph_eve_am_multiplier)
+            if val_eve_am != config.points.ph_eve_am_multiplier:
+                config.points = config.points.model_copy(update={"ph_eve_am_multiplier": val_eve_am})
+
+            val_eve_am_is_mult = st.checkbox("Multiply? (Eve AM)", value=config.points.ph_eve_am_is_multiplier)
+            if val_eve_am_is_mult != config.points.ph_eve_am_is_multiplier:
+                config.points = config.points.model_copy(update={"ph_eve_am_is_multiplier": val_eve_am_is_mult})
 
         with eve2:
             st.markdown("##### PM")
-            config.points.ph_eve_pm_multiplier = st.number_input(
-                "Value (Eve PM)", value=config.points.ph_eve_pm_multiplier
-            )
-            config.points.ph_eve_pm_is_multiplier = st.checkbox(
-                "Multiply? (Eve PM)", value=config.points.ph_eve_pm_is_multiplier
-            )
+            val_eve_pm = st.number_input("Value (Eve PM)", value=config.points.ph_eve_pm_multiplier)
+            if val_eve_pm != config.points.ph_eve_pm_multiplier:
+                config.points = config.points.model_copy(update={"ph_eve_pm_multiplier": val_eve_pm})
+
+            val_eve_pm_is_mult = st.checkbox("Multiply? (Eve PM)", value=config.points.ph_eve_pm_is_multiplier)
+            if val_eve_pm_is_mult != config.points.ph_eve_pm_is_multiplier:
+                config.points = config.points.model_copy(update={"ph_eve_pm_is_multiplier": val_eve_pm_is_mult})
 
         with eve3:
             st.markdown("##### 24H")
-            config.points.ph_eve_24h_multiplier = st.number_input(
-                "Value (Eve 24H)", value=config.points.ph_eve_24h_multiplier
-            )
-            config.points.ph_eve_24h_is_multiplier = st.checkbox(
-                "Multiply? (Eve 24H)", value=config.points.ph_eve_24h_is_multiplier
-            )
+            val_eve_24h = st.number_input("Value (Eve 24H)", value=config.points.ph_eve_24h_multiplier)
+            if val_eve_24h != config.points.ph_eve_24h_multiplier:
+                config.points = config.points.model_copy(update={"ph_eve_24h_multiplier": val_eve_24h})
+
+            val_eve_24h_is_mult = st.checkbox("Multiply? (Eve 24H)", value=config.points.ph_eve_24h_is_multiplier)
+            if val_eve_24h_is_mult != config.points.ph_eve_24h_is_multiplier:
+                config.points = config.points.model_copy(update={"ph_eve_24h_is_multiplier": val_eve_24h_is_mult})
 
         st.divider()
 
@@ -148,11 +155,13 @@ def render_settings(config: AppConfig):
         st.markdown("**Weekends**")
         w1, w2 = st.columns(2)
         with w1:
-            config.points.weekend_multiplier = st.number_input("Weekend Value", value=config.points.weekend_multiplier)
+            val_wknd = st.number_input("Weekend Value", value=config.points.weekend_multiplier)
+            if val_wknd != config.points.weekend_multiplier:
+                config.points = config.points.model_copy(update={"weekend_multiplier": val_wknd})
         with w2:
-            config.points.weekend_is_multiplier = st.checkbox(
-                "Is Multiplier? (Wknd)", value=config.points.weekend_is_multiplier
-            )
+            val_wknd_is_mult = st.checkbox("Is Multiplier? (Wknd)", value=config.points.weekend_is_multiplier)
+            if val_wknd_is_mult != config.points.weekend_is_multiplier:
+                config.points = config.points.model_copy(update={"weekend_is_multiplier": val_wknd_is_mult})
 
         st.divider()
 
@@ -163,31 +172,34 @@ def render_settings(config: AppConfig):
         # Column 1: AM
         with f1:
             st.markdown("##### AM")
-            config.points.friday_am_multiplier = st.number_input(
-                "Value (Fri AM)", value=config.points.friday_am_multiplier
-            )
-            config.points.friday_am_is_multiplier = st.checkbox(
-                "Multiply? (Fri AM)", value=config.points.friday_am_is_multiplier
-            )
+            val_fri_am = st.number_input("Value (Fri AM)", value=config.points.friday_am_multiplier)
+            if val_fri_am != config.points.friday_am_multiplier:
+                config.points = config.points.model_copy(update={"friday_am_multiplier": val_fri_am})
+
+            val_fri_am_is_mult = st.checkbox("Multiply? (Fri AM)", value=config.points.friday_am_is_multiplier)
+            if val_fri_am_is_mult != config.points.friday_am_is_multiplier:
+                config.points = config.points.model_copy(update={"friday_am_is_multiplier": val_fri_am_is_mult})
 
         # Column 2: PM
         with f2:
             st.markdown("##### PM")
-            config.points.friday_pm_multiplier = st.number_input(
-                "Value (Fri PM)", value=config.points.friday_pm_multiplier
-            )
-            config.points.friday_pm_is_multiplier = st.checkbox(
-                "Multiply? (Fri PM)", value=config.points.friday_pm_is_multiplier
-            )
+            val_fri_pm = st.number_input("Value (Fri PM)", value=config.points.friday_pm_multiplier)
+            if val_fri_pm != config.points.friday_pm_multiplier:
+                config.points = config.points.model_copy(update={"friday_pm_multiplier": val_fri_pm})
+
+            val_fri_pm_is_mult = st.checkbox("Multiply? (Fri PM)", value=config.points.friday_pm_is_multiplier)
+            if val_fri_pm_is_mult != config.points.friday_pm_is_multiplier:
+                config.points = config.points.model_copy(update={"friday_pm_is_multiplier": val_fri_pm_is_mult})
 
         # Column 3: 24H
         with f3:
             st.markdown("##### 24H")
-            config.points.friday_24h_multiplier = st.number_input(
-                "Value (Fri 24H)", value=config.points.friday_24h_multiplier
-            )
-            config.points.friday_24h_is_multiplier = st.checkbox(
-                "Multiply? (Fri 24H)", value=config.points.friday_24h_is_multiplier
-            )
+            val_fri_24h = st.number_input("Value (Fri 24H)", value=config.points.friday_24h_multiplier)
+            if val_fri_24h != config.points.friday_24h_multiplier:
+                config.points = config.points.model_copy(update={"friday_24h_multiplier": val_fri_24h})
+
+            val_fri_24h_is_mult = st.checkbox("Multiply? (Fri 24H)", value=config.points.friday_24h_is_multiplier)
+            if val_fri_24h_is_mult != config.points.friday_24h_is_multiplier:
+                config.points = config.points.model_copy(update={"friday_24h_is_multiplier": val_fri_24h_is_mult})
 
     st.info("Settings are applied in memory. Click 'Save Configuration' in the sidebar to persist to disk.")

@@ -13,18 +13,18 @@ from app.models.config import AppConfig
 # --- Save Config Tests ---
 
 
-def test_save_config_success():
+@patch("os.fsync")
+@patch("os.replace")
+@patch("builtins.open", new_callable=mock_open)
+def test_save_config_success(mock_file, mock_replace, mock_fsync):
     """Test successful save returns True and fsync is called."""
     cfg = AppConfig.default()
-    with patch("builtins.open", mock_open()):
-        with patch("os.path.exists", return_value=True):
-            with patch("os.replace") as mock_replace:
-                # Mock fsync to avoid "fileno() returned a non-integer" error
-                with patch("os.fsync") as mock_fsync:
-                    success = DataManager.save_config(cfg)
-                    assert success is True
-                    mock_replace.assert_called_once()
-                    mock_fsync.assert_called_once()
+    # Note: os.path.exists mock removed as it's not needed for the success path logic
+    success = DataManager.save_config(cfg)
+
+    assert success is True
+    mock_replace.assert_called_once()
+    mock_fsync.assert_called_once()
 
 
 def test_save_config_failure():
