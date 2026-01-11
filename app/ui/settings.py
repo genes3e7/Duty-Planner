@@ -43,56 +43,29 @@ def render_settings(config: AppConfig):
     st.subheader("Shift Constraints")
 
     c1, c2, c3 = st.columns(3)
+    shifts = [("AM", c1), ("PM", c2), ("24H", c3)]
+    updates = {}
 
-    # Validation Note: We must reassign the whole dict to trigger Pydantic validators
-
-    with c1:
-        val_am = int(
-            st.number_input(
-                "AM Staff Needed",
-                min_value=0,
-                value=config.constraints.personnel_needed_per_shift.get("AM", 1),
-                step=1,
-                format="%d",
+    for shift_name, col in shifts:
+        with col:
+            val = int(
+                st.number_input(
+                    f"{shift_name} Staff Needed",
+                    min_value=0,
+                    value=config.constraints.personnel_needed_per_shift.get(shift_name, 1),
+                    step=1,
+                    format="%d",
+                )
             )
-        )
-        if val_am != config.constraints.personnel_needed_per_shift.get("AM"):
-            config.constraints.personnel_needed_per_shift = {
-                **config.constraints.personnel_needed_per_shift,
-                "AM": val_am,
-            }
+            if val != config.constraints.personnel_needed_per_shift.get(shift_name):
+                updates[shift_name] = val
 
-    with c2:
-        val_pm = int(
-            st.number_input(
-                "PM Staff Needed",
-                min_value=0,
-                value=config.constraints.personnel_needed_per_shift.get("PM", 1),
-                step=1,
-                format="%d",
-            )
-        )
-        if val_pm != config.constraints.personnel_needed_per_shift.get("PM"):
-            config.constraints.personnel_needed_per_shift = {
-                **config.constraints.personnel_needed_per_shift,
-                "PM": val_pm,
-            }
-
-    with c3:
-        val_24h = int(
-            st.number_input(
-                "24H Staff Needed",
-                min_value=0,
-                value=config.constraints.personnel_needed_per_shift.get("24H", 1),
-                step=1,
-                format="%d",
-            )
-        )
-        if val_24h != config.constraints.personnel_needed_per_shift.get("24H"):
-            config.constraints.personnel_needed_per_shift = {
-                **config.constraints.personnel_needed_per_shift,
-                "24H": val_24h,
-            }
+    if updates:
+        # Reassign dict to trigger validation
+        config.constraints.personnel_needed_per_shift = {
+            **config.constraints.personnel_needed_per_shift,
+            **updates,
+        }
 
     st.markdown("---")
 
@@ -101,14 +74,29 @@ def render_settings(config: AppConfig):
 
     with st.expander("Base Points"):
         p1, p2, p3, p4 = st.columns(4)
+
+        # Use model_copy(update=...) to ensure validation runs on assignment
+        # Note: We must update the parent 'config.points' with the new model instance
+
         with p1:
-            config.points.AM = st.number_input("AM Pts", value=config.points.AM)
+            val_am = st.number_input("AM Pts", value=config.points.AM)
+            if val_am != config.points.AM:
+                config.points = config.points.model_copy(update={"AM": val_am})
+
         with p2:
-            config.points.PM = st.number_input("PM Pts", value=config.points.PM)
+            val_pm = st.number_input("PM Pts", value=config.points.PM)
+            if val_pm != config.points.PM:
+                config.points = config.points.model_copy(update={"PM": val_pm})
+
         with p3:
-            config.points.FULL_24H = st.number_input("24H Pts", value=config.points.FULL_24H)
+            val_24h = st.number_input("24H Pts", value=config.points.FULL_24H)
+            if val_24h != config.points.FULL_24H:
+                config.points = config.points.model_copy(update={"FULL_24H": val_24h})
+
         with p4:
-            config.points.SB = st.number_input("Standby Pts", value=config.points.SB)
+            val_sb = st.number_input("Standby Pts", value=config.points.SB)
+            if val_sb != config.points.SB:
+                config.points = config.points.model_copy(update={"SB": val_sb})
 
     with st.expander("Multipliers", expanded=True):
         st.caption("Multipliers scale the base points (e.g. 2x). If unchecked, the value is added (e.g. +2).")

@@ -84,6 +84,7 @@ def synchronize_roster_index(df_roster: Optional[pd.DataFrame], new_personnel: L
     """Reindexes the roster DataFrame to match a new list of personnel."""
     if df_roster is None:
         return None
+    # reindex handles new rows; fillna handles any existing NaN cells or new rows
     new_df = df_roster.reindex(index=new_personnel, fill_value="")
     return new_df.fillna("")
 
@@ -155,9 +156,6 @@ def prepare_solver_request(
     valid_staff = set(config.personnel)
     sg_holidays = get_holidays(year)
 
-    # Scale factor for integer arithmetic in solver (1.5 -> 150)
-    SCALE = 100
-
     # 1. Parse Day Configuration & Calculate Weights
     for day_num, row in df_days.iterrows():
         if not row["Active"]:
@@ -168,7 +166,9 @@ def prepare_solver_request(
         try:
             current_date = pd.Timestamp(year=year, month=month, day=day_num)
             for shift in ["AM", "PM", "24H", "S/B"]:
-                w = config.points.calculate_score(current_date, shift, scale=SCALE, holidays_obj=sg_holidays)
+                w = config.points.calculate_score(
+                    current_date, shift, scale=C.SCORE_SCALE_FACTOR, holidays_obj=sg_holidays
+                )
                 shift_weights[(day_num, shift)] = w
         except ValueError as e:
             logger.error(f"Invalid date configuration for Year={year}, Month={month}, Day={day_num}: {e}")
@@ -211,8 +211,11 @@ def run_solver(
         engine = DutySchedulerEngine(config, prev_balance, req)
         engine.build_model()
         return engine.solve()
-    except Exception as e:
+    except (ValueError, RuntimeError) as e:
         logger.error(f"Solver execution failed: {e}")
+        return None
+    except Exception as e:
+        logger.exception(f"Unexpected error in solver: {e}")
         return None
 
 
@@ -244,14 +247,13 @@ def calculate_stats(
                     except Exception:
                         continue
 
-                    SCALE_FACTOR = 100
                     scaled_pts = config.points.calculate_score(
                         date_obj=current_date,
                         shift_type=val,
-                        scale=SCALE_FACTOR,
+                        scale=C.SCORE_SCALE_FACTOR,
                         holidays_obj=sg_holidays,
                     )
-                    current_pts += scaled_pts / SCALE_FACTOR
+                    current_pts += scaled_pts / C.SCORE_SCALE_FACTOR
 
         raw_total = bf + current_pts
         summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})
@@ -293,10 +295,12 @@ def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, confi
     # Styles
     fill_header = PatternFill("solid", fgColor=C.COLOR_HEADER_BG.replace("#", ""))
     fill_x = PatternFill("solid", fgColor=C.COLOR_CONSTRAINT_BG.replace("#", ""))
-    fill_24h = PatternFill("solid", fgColor="FF99CCFF")
-    fill_am = PatternFill("solid", fgColor="FFFFCC99")
-    fill_pm = PatternFill("solid", fgColor="FFCC99FF")
-    fill_sb = PatternFill("solid", fgColor="FFCCFFCC")
+
+    # Use constants for colors
+    fill_24h = PatternFill("solid", fgColor=C.COLOR_FILL_24H)
+    fill_am = PatternFill("solid", fgColor=C.COLOR_FILL_AM)
+    fill_pm = PatternFill("solid", fgColor=C.COLOR_FILL_PM)
+    fill_sb = PatternFill("solid", fgColor=C.COLOR_FILL_SB)
 
     thin_side = Side(style="thin")
     thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)

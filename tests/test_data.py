@@ -2,15 +2,16 @@
 tests/test_data.py
 """
 
+from unittest.mock import mock_open, patch
+
 import pandas as pd
 import pytest
-from unittest.mock import mock_open, patch, MagicMock
 
 from app.core.data import DataManager
 from app.models.config import AppConfig
 
-
 # --- Save Config Tests ---
+
 
 def test_save_config_success():
     """Test successful save returns True and fsync is called."""
@@ -36,13 +37,10 @@ def test_save_config_failure():
 
 # --- Load Previous Balance Tests ---
 
+
 def test_load_previous_balance_valid():
     """Test loading valid balance data from Excel."""
-    mock_df = pd.DataFrame({
-        "Name": ["Alice", "Bob"],
-        "Carry Over": [10.5, 5.0],
-        "Extra": ["Ignore", "Me"]
-    })
+    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "Carry Over": [10.5, 5.0], "Extra": ["Ignore", "Me"]})
 
     with patch("pandas.read_excel", return_value=mock_df):
         result = DataManager.load_previous_balance("dummy.xlsx")
@@ -54,7 +52,7 @@ def test_load_previous_balance_valid():
 
 def test_load_previous_balance_missing_columns():
     """Test that ValueError is raised if required columns are missing."""
-    mock_df = pd.DataFrame({"Name": ["Alice"], "Points": [10]}) # Missing 'Carry Over'
+    mock_df = pd.DataFrame({"Name": ["Alice"], "Points": [10]})  # Missing 'Carry Over'
 
     with patch("pandas.read_excel", return_value=mock_df):
         with pytest.raises(ValueError, match="must contain 'Name' and 'Carry Over'"):
@@ -69,10 +67,7 @@ def test_load_previous_balance_empty_input():
 
 def test_load_previous_balance_corrupt_values():
     """Test that non-numeric carry over values are skipped."""
-    mock_df = pd.DataFrame({
-        "Name": ["Alice", "Bob"],
-        "Carry Over": ["NotANumber", 5.0]
-    })
+    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "Carry Over": ["NotANumber", 5.0]})
 
     with patch("pandas.read_excel", return_value=mock_df):
         result = DataManager.load_previous_balance("dummy.xlsx")
@@ -84,15 +79,11 @@ def test_load_previous_balance_corrupt_values():
 
 # --- Load Constraints Tests ---
 
+
 def test_load_constraints_valid():
     """Test loading valid constraints from Excel."""
     # Structure: Name, 1, 2, 3 (Days)
-    mock_df = pd.DataFrame({
-        "Name": ["Alice", "Bob"],
-        "1": ["AM", None],
-        "2": [None, "X"],
-        "3": ["PM", "24H"]
-    })
+    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "1": ["AM", None], "2": [None, "X"], "3": ["PM", "24H"]})
 
     with patch("pandas.read_excel", return_value=mock_df):
         result = DataManager.load_constraints("dummy.xlsx")

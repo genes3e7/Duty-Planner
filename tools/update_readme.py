@@ -75,7 +75,7 @@ def main():
             content = f.read()
 
         # Regex to find and replace the existing badge section
-        # Looks for ... # Updated to be flexible with whitespace inside comments
+        # We explicitly define the regex pattern here to capture start/end markers
         pattern = r"()(.*?)()"
 
         match = re.search(pattern, content, re.DOTALL)
@@ -86,7 +86,7 @@ def main():
                 f.write(new_content)
             print("README.md updated successfully with badges.")
         else:
-            print("Error: Badge markers ... not found in README.md")
+            print("Error: Badge markers not found in README.md")
             print("--- Debug: README Start ---")
             print(content[:500])
             print("--- Debug: README End ---")
