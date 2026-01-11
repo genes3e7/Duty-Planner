@@ -28,11 +28,7 @@ colorama==0.4.6
     # via click
 et-xmlfile==2.0.0
     # via openpyxl
-gitdb==4.0.12
-    # via gitpython
-gitpython==3.1.46
-    # via streamlit
-holidays==0.87
+holidays==0.88
     # via -r requirements.in
 idna==3.11
     # via requests
@@ -89,16 +85,8 @@ python-dateutil==2.9.0.post0
     #   pandas
 pytz==2025.2
     # via pandas
-referencing==0.37.0
-    # via
-    #   jsonschema
-    #   jsonschema-specifications
-requests==2.32.5
-    # via streamlit
-rpds-py==0.30.0
-    # via
-    #   jsonschema
-    #   referencing
+ruff==0.14.11
+    # via -r requirements.in
 six==1.17.0
     # via python-dateutil
 smmap==5.0.2
