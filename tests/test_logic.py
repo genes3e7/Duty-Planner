@@ -44,7 +44,7 @@ def test_generate_empty_schedule_invalid_date():
     """Test that invalid dates (e.g., month 13) raise ValueError."""
     # The logic now strictly enforces date validity and raises ValueError
     # instead of silently falling back to a default.
-    with pytest.raises(ValueError, match="Invalid date generated"):
+    with pytest.raises(ValueError, match="Invalid year/month"):
         logic.generate_empty_schedule(2025, 13, ["A"])
 
 

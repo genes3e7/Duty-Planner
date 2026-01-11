@@ -39,12 +39,12 @@ def get_holidays(year: int) -> holidays.HolidayBase:
 
 def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Creates the initial empty DataFrames for the Roster and Day Configuration."""
+    # Fail fast if the Year/Month is invalid (e.g. Month 13)
     try:
         period = pd.Period(f"{year}-{month}")
         num_days = period.days_in_month
-    except ValueError:
-        logger.warning(f"Invalid year/month ({year}/{month}), defaulting to 30 days")
-        num_days = 30
+    except ValueError as e:
+        raise ValueError(f"Invalid year/month: {year}/{month}") from e
 
     sg_holidays = get_holidays(year)
     day_data = []
@@ -204,7 +204,7 @@ def run_solver(
     df_days: pd.DataFrame,
     config: AppConfig,
     prev_balance: Dict[str, float],
-) -> Optional[Tuple[Dict, Optional[Any]]]:
+) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
     """Orchestrates the solving process."""
     try:
         req = prepare_solver_request(year, month, df_roster, df_days, config)
