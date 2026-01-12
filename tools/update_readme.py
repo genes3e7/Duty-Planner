@@ -15,9 +15,18 @@ import shutil
 import sys
 import tempfile
 import traceback
+from typing import Optional
 
 
-def main():
+def parse_version(v: str) -> Optional[tuple[int, ...]]:
+    """Parse a version string into a tuple of integers."""
+    try:
+        return tuple(map(int, v.split(".")))
+    except ValueError:
+        return None
+
+
+def main() -> None:
     """
     Main execution function.
     Reads artifacts, generates badges, and updates the README file.
@@ -43,13 +52,6 @@ def main():
                 # Extract version number from filename: python_version_3.12.txt -> 3.12
                 version = file.replace("python_version_", "").replace(".txt", "")
                 supported_versions.append(version)
-
-        # Helper to parse version string safely
-        def parse_version(v):
-            try:
-                return tuple(map(int, v.split(".")))
-            except ValueError:
-                return None
 
         # Dedup, filter, and sort valid versions
         unique_versions = set(supported_versions)
@@ -104,10 +106,10 @@ def main():
                     tmp.write(new_content)
                     tmp_path = tmp.name
                 shutil.move(tmp_path, readme_path)
-            except Exception as e:
+            except Exception:
                 if tmp_path and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-                raise e
+                raise
             print("README.md updated successfully with badges.")
         else:
             print("Error: Badge markers not found in README.md")
