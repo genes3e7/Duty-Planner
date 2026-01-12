@@ -95,3 +95,8 @@ The project employs a robust testing strategy:
 * **Unit Tests (`tests/test_logic.py`, `tests/test_data.py`):** Verify individual components in isolation, mocking external dependencies like file I/O.
 * **Core Logic Tests (`tests/test_core_scheduler.py`):** Validate the solver engine against specific constraints.
 * **Integration Tests (`tests/test_app_integration.py`):** Use Streamlit's `AppTest` framework to simulate user interactions and verify UI state persistence.
+
+## Deployment
+
+The project is live at
+[smart-duty-scheduler.streamlit.app/](https://smart-duty-scheduler.streamlit.app/)
