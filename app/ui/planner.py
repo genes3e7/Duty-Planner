@@ -128,7 +128,8 @@ def render_planner(config: AppConfig) -> None:
             },
             # Hiding "Is_Weekend" by strictly defining column_order
             column_order=["Active", "Mode", "Is_PH"],
-            disabled=["Date", "Day"],
+            # Fixed: removed "Day" (index) from disabled list, as it's not a column
+            disabled=["Date"],
             width="stretch",
             key="day_config_editor",
         )

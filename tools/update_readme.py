@@ -41,9 +41,6 @@ def main():
                 version = file.replace("python_version_", "").replace(".txt", "")
                 supported_versions.append(version)
 
-        # Dedup
-        unique_versions = list(set(supported_versions))
-
         # Helper to parse version string safely
         def parse_version(v):
             try:
@@ -51,7 +48,8 @@ def main():
             except ValueError:
                 return None
 
-        # Filter valid versions
+        # Dedup, filter, and sort valid versions
+        unique_versions = set(supported_versions)
         valid_versions = []
         for v in unique_versions:
             if parse_version(v) is not None:
@@ -61,18 +59,17 @@ def main():
 
         # Numeric Sort (3.10 > 3.9)
         valid_versions.sort(key=parse_version)
-        unique_versions = valid_versions
 
-        if not unique_versions:
+        if not valid_versions:
             print("No supported versions found in artifacts.")
             sys.exit(1)
 
-        print(f"Found supported versions: {unique_versions}")
+        print(f"Found supported versions: {valid_versions}")
 
         # 2. Generate Badge Markdown
         # Uses img.shields.io for badges
         badges = []
-        for v in unique_versions:
+        for v in valid_versions:
             badge = f"![Python {v}](https://img.shields.io/badge/python-{v}-blue?logo=python&logoColor=white)"
             badges.append(badge)
 

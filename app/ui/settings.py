@@ -10,18 +10,26 @@ import streamlit as st
 from app.models.config import AppConfig
 
 
-def _update_number_field(config: AppConfig, field_name: str, label: str, current_value: float) -> None:
-    """Helper to update a numeric point field with validation."""
-    new_val = st.number_input(label, value=current_value)
-    if new_val != current_value:
-        config.points = config.points.model_copy(update={field_name: new_val})
+def _ensure_pending_state():
+    if "pending_points_updates" not in st.session_state:
+        st.session_state.pending_points_updates = {}
 
 
-def _update_checkbox_field(config: AppConfig, field_name: str, label: str, current_value: bool) -> None:
-    """Helper to update a boolean point field with validation."""
-    new_val = st.checkbox(label, value=current_value)
+def _update_number_field(field_name: str, label: str, current_value: float) -> None:
+    """Helper to track a numeric point field change in session state."""
+    _ensure_pending_state()
+    # Use key to let Streamlit manage the widget state uniquely
+    new_val = st.number_input(label, value=current_value, key=f"pt_{field_name}")
     if new_val != current_value:
-        config.points = config.points.model_copy(update={field_name: new_val})
+        st.session_state.pending_points_updates[field_name] = new_val
+
+
+def _update_checkbox_field(field_name: str, label: str, current_value: bool) -> None:
+    """Helper to track a boolean point field change in session state."""
+    _ensure_pending_state()
+    new_val = st.checkbox(label, value=current_value, key=f"pt_bool_{field_name}")
+    if new_val != current_value:
+        st.session_state.pending_points_updates[field_name] = new_val
 
 
 def render_settings(config: AppConfig) -> None:
@@ -62,8 +70,7 @@ def render_settings(config: AppConfig) -> None:
 
     for shift_name, col in shifts:
         with col:
-            # Removed redundant int() cast; st.number_input with format="%d" handles display,
-            # and we can cast the result if needed or rely on step=1.
+            # Cast to int since st.number_input returns float by default
             val = int(
                 st.number_input(
                     f"{shift_name} Staff Needed",
@@ -93,13 +100,13 @@ def render_settings(config: AppConfig) -> None:
         p1, p2, p3, p4 = st.columns(4)
 
         with p1:
-            _update_number_field(config, "AM", "AM Pts", config.points.AM)
+            _update_number_field("AM", "AM Pts", config.points.AM)
         with p2:
-            _update_number_field(config, "PM", "PM Pts", config.points.PM)
+            _update_number_field("PM", "PM Pts", config.points.PM)
         with p3:
-            _update_number_field(config, "FULL_24H", "24H Pts", config.points.FULL_24H)
+            _update_number_field("FULL_24H", "24H Pts", config.points.FULL_24H)
         with p4:
-            _update_number_field(config, "SB", "Standby Pts", config.points.SB)
+            _update_number_field("SB", "Standby Pts", config.points.SB)
 
     with st.expander("Multipliers", expanded=True):
         st.caption("Multipliers scale the base points (e.g. 2x). If unchecked, the value is added (e.g. +2).")
@@ -108,9 +115,9 @@ def render_settings(config: AppConfig) -> None:
         st.markdown("**Public Holidays**")
         ph1, ph2 = st.columns(2)
         with ph1:
-            _update_number_field(config, "ph_multiplier", "PH Value", config.points.ph_multiplier)
+            _update_number_field("ph_multiplier", "PH Value", config.points.ph_multiplier)
         with ph2:
-            _update_checkbox_field(config, "ph_is_multiplier", "Is Multiplier? (PH)", config.points.ph_is_multiplier)
+            _update_checkbox_field("ph_is_multiplier", "Is Multiplier? (PH)", config.points.ph_is_multiplier)
 
         st.divider()
 
@@ -120,25 +127,23 @@ def render_settings(config: AppConfig) -> None:
 
         with eve1:
             st.markdown("##### AM")
-            _update_number_field(config, "ph_eve_am_multiplier", "Value (Eve AM)", config.points.ph_eve_am_multiplier)
+            _update_number_field("ph_eve_am_multiplier", "Value (Eve AM)", config.points.ph_eve_am_multiplier)
             _update_checkbox_field(
-                config, "ph_eve_am_is_multiplier", "Multiply? (Eve AM)", config.points.ph_eve_am_is_multiplier
+                "ph_eve_am_is_multiplier", "Multiply? (Eve AM)", config.points.ph_eve_am_is_multiplier
             )
 
         with eve2:
             st.markdown("##### PM")
-            _update_number_field(config, "ph_eve_pm_multiplier", "Value (Eve PM)", config.points.ph_eve_pm_multiplier)
+            _update_number_field("ph_eve_pm_multiplier", "Value (Eve PM)", config.points.ph_eve_pm_multiplier)
             _update_checkbox_field(
-                config, "ph_eve_pm_is_multiplier", "Multiply? (Eve PM)", config.points.ph_eve_pm_is_multiplier
+                "ph_eve_pm_is_multiplier", "Multiply? (Eve PM)", config.points.ph_eve_pm_is_multiplier
             )
 
         with eve3:
             st.markdown("##### 24H")
-            _update_number_field(
-                config, "ph_eve_24h_multiplier", "Value (Eve 24H)", config.points.ph_eve_24h_multiplier
-            )
+            _update_number_field("ph_eve_24h_multiplier", "Value (Eve 24H)", config.points.ph_eve_24h_multiplier)
             _update_checkbox_field(
-                config, "ph_eve_24h_is_multiplier", "Multiply? (Eve 24H)", config.points.ph_eve_24h_is_multiplier
+                "ph_eve_24h_is_multiplier", "Multiply? (Eve 24H)", config.points.ph_eve_24h_is_multiplier
             )
 
         st.divider()
@@ -147,10 +152,10 @@ def render_settings(config: AppConfig) -> None:
         st.markdown("**Weekends**")
         w1, w2 = st.columns(2)
         with w1:
-            _update_number_field(config, "weekend_multiplier", "Weekend Value", config.points.weekend_multiplier)
+            _update_number_field("weekend_multiplier", "Weekend Value", config.points.weekend_multiplier)
         with w2:
             _update_checkbox_field(
-                config, "weekend_is_multiplier", "Is Multiplier? (Wknd)", config.points.weekend_is_multiplier
+                "weekend_is_multiplier", "Is Multiplier? (Wknd)", config.points.weekend_is_multiplier
             )
 
         st.divider()
@@ -162,27 +167,30 @@ def render_settings(config: AppConfig) -> None:
         # Column 1: AM
         with f1:
             st.markdown("##### AM")
-            _update_number_field(config, "friday_am_multiplier", "Value (Fri AM)", config.points.friday_am_multiplier)
+            _update_number_field("friday_am_multiplier", "Value (Fri AM)", config.points.friday_am_multiplier)
             _update_checkbox_field(
-                config, "friday_am_is_multiplier", "Multiply? (Fri AM)", config.points.friday_am_is_multiplier
+                "friday_am_is_multiplier", "Multiply? (Fri AM)", config.points.friday_am_is_multiplier
             )
 
         # Column 2: PM
         with f2:
             st.markdown("##### PM")
-            _update_number_field(config, "friday_pm_multiplier", "Value (Fri PM)", config.points.friday_pm_multiplier)
+            _update_number_field("friday_pm_multiplier", "Value (Fri PM)", config.points.friday_pm_multiplier)
             _update_checkbox_field(
-                config, "friday_pm_is_multiplier", "Multiply? (Fri PM)", config.points.friday_pm_is_multiplier
+                "friday_pm_is_multiplier", "Multiply? (Fri PM)", config.points.friday_pm_is_multiplier
             )
 
         # Column 3: 24H
         with f3:
             st.markdown("##### 24H")
-            _update_number_field(
-                config, "friday_24h_multiplier", "Value (Fri 24H)", config.points.friday_24h_multiplier
-            )
+            _update_number_field("friday_24h_multiplier", "Value (Fri 24H)", config.points.friday_24h_multiplier)
             _update_checkbox_field(
-                config, "friday_24h_is_multiplier", "Multiply? (Fri 24H)", config.points.friday_24h_is_multiplier
+                "friday_24h_is_multiplier", "Multiply? (Fri 24H)", config.points.friday_24h_is_multiplier
             )
+
+    # Apply pending updates if any exist
+    if "pending_points_updates" in st.session_state and st.session_state.pending_points_updates:
+        config.points = config.points.model_copy(update=st.session_state.pending_points_updates)
+        st.session_state.pending_points_updates = {}
 
     st.info("Settings are applied in memory. Click 'Save Configuration' in the sidebar to persist to disk.")
