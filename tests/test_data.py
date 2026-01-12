@@ -2,39 +2,15 @@
 tests/test_data.py
 """
 
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
 from app.core.data import DataManager
-from app.models.config import AppConfig
 
 # --- Save Config Tests ---
-
-
-def test_save_config_success():
-    """Test successful save returns True and fsync is called."""
-    cfg = AppConfig.default()
-    test_path = "test_config.json"
-    with patch("builtins.open", mock_open()):
-        with patch("os.path.exists", return_value=True):
-            with patch("os.replace") as mock_replace:
-                # Mock fsync to avoid "fileno() returned a non-integer" error
-                with patch("os.fsync") as mock_fsync:
-                    success = DataManager.save_config(cfg, test_path)
-                    assert success is True
-                    mock_replace.assert_called_once()
-                    mock_fsync.assert_called_once()
-
-
-def test_save_config_failure():
-    """Test that save returns False on write error."""
-    cfg = AppConfig.default()
-    test_path = "test_config.json"
-    with patch("builtins.open", side_effect=IOError("disk full")):
-        success = DataManager.save_config(cfg, test_path)
-        assert success is False
+# REMOVED: save_config is no longer supported to prevent security leaks.
 
 
 # --- Load Previous Balance Tests ---

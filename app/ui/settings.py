@@ -207,4 +207,7 @@ def render_settings(config: AppConfig) -> None:
         config.personnel = st.session_state.pending_personnel_update
         st.session_state.pending_personnel_update = None
 
-    st.info("Settings are applied in memory. Click 'Save Configuration' in the sidebar to persist to disk.")
+    st.info(
+        "Settings are applied in memory. To save these changes permanently, "
+        "go to the sidebar and click **Download Config JSON**."
+    )
