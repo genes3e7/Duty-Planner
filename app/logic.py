@@ -32,12 +32,28 @@ def get_day_num(col_name: str) -> int:
     return 0
 
 
-def get_holidays(year: int) -> holidays.HolidayBase:
-    """Returns the holiday object for Singapore for the given year."""
-    return holidays.SG(years=year)
+def get_holidays(year: int, country_code: str = "SG") -> holidays.HolidayBase:
+    """
+    Returns the holiday object for the given country and year.
+    Defaults to Singapore (SG) if code is invalid or not found.
+    """
+    try:
+        # Check if country code is supported by holidays library
+        if hasattr(holidays, country_code):
+            # Instantiate the holiday class, e.g., holidays.US(years=year)
+            holiday_cls = getattr(holidays, country_code)
+            return holiday_cls(years=year)
+        else:
+            # Fallback to direct lookup (sometimes needed for country codes not top-level)
+            return holidays.country_holidays(country_code, years=year)
+    except Exception as e:
+        logger.warning(f"Could not load holidays for '{country_code}': {e}. Fallback to SG.")
+        return holidays.SG(years=year)
 
 
-def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def generate_empty_schedule(
+    year: int, month: int, personnel: List[str], country_code: str = "SG"
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Creates the initial empty DataFrames for the Roster and Day Configuration."""
     try:
         period = pd.Period(f"{year}-{month}")
@@ -46,7 +62,7 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
         logger.warning(f"Invalid year/month ({year}/{month}), defaulting to 30 days")
         num_days = 30
 
-    sg_holidays = get_holidays(year)
+    country_holidays = get_holidays(year, country_code)
     day_data = []
     day_columns = [f"D{d}" for d in range(1, num_days + 1)]
 
@@ -57,7 +73,7 @@ def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tupl
             # Raise error for invalid dates to prevent silent configuration issues
             raise ValueError(f"Invalid date generated: {year}-{month}-{d}") from e
 
-        is_ph = dt in sg_holidays
+        is_ph = dt in country_holidays
         mode = C.ScheduleMode.FULL_24H.value if is_ph else C.ScheduleMode.SHIFT.value
 
         day_data.append(
@@ -154,7 +170,7 @@ def prepare_solver_request(
     shift_weights = {}
 
     valid_staff = set(config.personnel)
-    sg_holidays = get_holidays(year)
+    country_holidays = get_holidays(year, config.country_code)
 
     # 1. Parse Day Configuration & Calculate Weights
     for day_num, row in df_days.iterrows():
@@ -167,7 +183,7 @@ def prepare_solver_request(
             current_date = pd.Timestamp(year=year, month=month, day=day_num)
             for shift in ["AM", "PM", "24H", "S/B"]:
                 w = config.points.calculate_score(
-                    current_date, shift, scale=C.SCORE_SCALE_FACTOR, holidays_obj=sg_holidays
+                    current_date, shift, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
                 )
                 shift_weights[(day_num, shift)] = w
         except ValueError as e:
@@ -225,7 +241,7 @@ def calculate_stats(
     """Calculates point statistics for the current roster state."""
     summary = []
     raw_carry_overs = []
-    sg_holidays = get_holidays(config.year)
+    country_holidays = get_holidays(config.year, config.country_code)
 
     for person in config.personnel:
         bf = prev_balance.get(person, 0.0)
@@ -255,7 +271,7 @@ def calculate_stats(
                         date_obj=current_date,
                         shift_type=val,
                         scale=C.SCORE_SCALE_FACTOR,
-                        holidays_obj=sg_holidays,
+                        holidays_obj=country_holidays,
                     )
                     current_pts += scaled_pts / C.SCORE_SCALE_FACTOR
 

@@ -19,6 +19,10 @@ def _ensure_pending_state() -> None:
         st.session_state.pending_personnel_update = None
     if "pending_standby_update" not in st.session_state:
         st.session_state.pending_standby_update = None
+    if "pending_max_consecutive_update" not in st.session_state:
+        st.session_state.pending_max_consecutive_update = None
+    if "pending_country_code_update" not in st.session_state:
+        st.session_state.pending_country_code_update = None
 
 
 def _update_number_field(field_name: str, label: str, current_value: float) -> None:
@@ -71,7 +75,27 @@ def render_settings(config: AppConfig) -> None:
 
     st.markdown("---")
 
-    # 2. Shift Constraints
+    # 2. General Settings (Country Code)
+    st.subheader("General Settings")
+    st.caption("Settings that affect holidays and global behavior.")
+
+    country_val = st.text_input(
+        "Country Code (for Public Holidays)",
+        value=config.country_code,
+        help="Use ISO codes (e.g., 'SG', 'US', 'GB') supported by the Python 'holidays' library.",
+        key="country_code_input",
+    )
+
+    # Simple validation: ensure not empty, default to SG if empty
+    if not country_val.strip():
+        country_val = "SG"
+
+    if country_val != config.country_code:
+        st.session_state.pending_country_code_update = country_val.strip().upper()
+
+    st.markdown("---")
+
+    # 3. Shift Constraints
     st.subheader("Shift Constraints")
 
     c1, c2, c3, c4 = st.columns(4)
@@ -108,9 +132,24 @@ def render_settings(config: AppConfig) -> None:
         if val_sb != config.constraints.standby_per_day:
             st.session_state.pending_standby_update = val_sb
 
+    # Max Consecutive Duties
+    st.caption("Global limits applied to all staff.")
+    val_max = int(
+        st.number_input(
+            "Max Consecutive Duties",
+            min_value=1,
+            value=config.constraints.max_consecutive_duties,
+            step=1,
+            format="%d",
+            key="constraint_max_consecutive",
+        )
+    )
+    if val_max != config.constraints.max_consecutive_duties:
+        st.session_state.pending_max_consecutive_update = val_max
+
     st.markdown("---")
 
-    # 3. Point Values
+    # 4. Point Values
     st.subheader("Point Scoring Rules")
 
     st.markdown("#### Base Points")
@@ -124,7 +163,7 @@ def render_settings(config: AppConfig) -> None:
         _update_number_field("FULL_24H", "24H Pts", config.points.FULL_24H)
     with p4:
         _update_number_field("SB", "Standby Pts", config.points.SB)
-    
+
     st.divider()
 
     st.markdown("#### Multipliers")
@@ -136,9 +175,7 @@ def render_settings(config: AppConfig) -> None:
     with w1:
         _update_number_field("weekend_multiplier", "Weekend Value", config.points.weekend_multiplier)
     with w2:
-        _update_checkbox_field(
-            "weekend_is_multiplier", "Is Multiplier? (Wknd)", config.points.weekend_is_multiplier
-        )
+        _update_checkbox_field("weekend_is_multiplier", "Is Multiplier? (Wknd)", config.points.weekend_is_multiplier)
 
     st.divider()
 
@@ -150,17 +187,13 @@ def render_settings(config: AppConfig) -> None:
     with f1:
         st.markdown("##### AM")
         _update_number_field("friday_am_multiplier", "Value (Fri AM)", config.points.friday_am_multiplier)
-        _update_checkbox_field(
-            "friday_am_is_multiplier", "Multiply? (Fri AM)", config.points.friday_am_is_multiplier
-        )
+        _update_checkbox_field("friday_am_is_multiplier", "Multiply? (Fri AM)", config.points.friday_am_is_multiplier)
 
     # Column 2: PM
     with f2:
         st.markdown("##### PM")
         _update_number_field("friday_pm_multiplier", "Value (Fri PM)", config.points.friday_pm_multiplier)
-        _update_checkbox_field(
-            "friday_pm_is_multiplier", "Multiply? (Fri PM)", config.points.friday_pm_is_multiplier
-        )
+        _update_checkbox_field("friday_pm_is_multiplier", "Multiply? (Fri PM)", config.points.friday_pm_is_multiplier)
 
     # Column 3: 24H
     with f3:
@@ -189,16 +222,12 @@ def render_settings(config: AppConfig) -> None:
     with eve1:
         st.markdown("##### AM")
         _update_number_field("ph_eve_am_multiplier", "Value (Eve AM)", config.points.ph_eve_am_multiplier)
-        _update_checkbox_field(
-            "ph_eve_am_is_multiplier", "Multiply? (Eve AM)", config.points.ph_eve_am_is_multiplier
-        )
+        _update_checkbox_field("ph_eve_am_is_multiplier", "Multiply? (Eve AM)", config.points.ph_eve_am_is_multiplier)
 
     with eve2:
         st.markdown("##### PM")
         _update_number_field("ph_eve_pm_multiplier", "Value (Eve PM)", config.points.ph_eve_pm_multiplier)
-        _update_checkbox_field(
-            "ph_eve_pm_is_multiplier", "Multiply? (Eve PM)", config.points.ph_eve_pm_is_multiplier
-        )
+        _update_checkbox_field("ph_eve_pm_is_multiplier", "Multiply? (Eve PM)", config.points.ph_eve_pm_is_multiplier)
 
     with eve3:
         st.markdown("##### 24H")
@@ -225,12 +254,23 @@ def render_settings(config: AppConfig) -> None:
         constraint_updates["standby_per_day"] = st.session_state.pending_standby_update
         st.session_state.pending_standby_update = None
 
+    if st.session_state.get("pending_max_consecutive_update") is not None:
+        constraint_updates["max_consecutive_duties"] = st.session_state.pending_max_consecutive_update
+        st.session_state.pending_max_consecutive_update = None
+
     if constraint_updates:
         config.constraints = config.constraints.model_copy(update=constraint_updates)
 
     if st.session_state.get("pending_personnel_update") is not None:
         config.personnel = st.session_state.pending_personnel_update
         st.session_state.pending_personnel_update = None
+
+    if st.session_state.get("pending_country_code_update") is not None:
+        config.country_code = st.session_state.pending_country_code_update
+        st.session_state.pending_country_code_update = None
+        # Invalidate planner cache to force reload with new holidays
+        if "loaded_date" in st.session_state:
+            st.session_state.loaded_date = None
 
     st.info(
         "Settings are applied in memory. To save these changes permanently, "

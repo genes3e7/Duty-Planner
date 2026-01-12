@@ -34,7 +34,8 @@ def _initialize_session_state(config: AppConfig, sel_year: int, sel_month: int, 
         if date_changed and st.session_state.loaded_date is not None:
             st.toast(f"Switched to {sel_month_name} {sel_year}", icon="📅")
 
-        r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, config.personnel)
+        # Pass country_code to generate appropriate holidays
+        r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, config.personnel, config.country_code)
 
         st.session_state.roster_df = r_df
         st.session_state.day_config_df = d_df
@@ -55,7 +56,7 @@ def _render_toolbar(config: AppConfig, sel_year: int, sel_month: int) -> None:
 
     with col_act1:
         if st.button("🔄 Reset Grid", help="Clear all data for this month"):
-            r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, config.personnel)
+            r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, config.personnel, config.country_code)
             st.session_state.roster_df = r_df
             st.session_state.day_config_df = d_df
             st.session_state.roster_version += 1

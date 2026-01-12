@@ -157,7 +157,9 @@ def render_sidebar() -> str:
                     # Try to initialize if we have date context
                     if st.session_state.loaded_date is None:
                         # Initialize silently if possible
-                        r_df, d_df = logic.generate_empty_schedule(config.year, config.month, config.personnel)
+                        r_df, d_df = logic.generate_empty_schedule(
+                            config.year, config.month, config.personnel, config.country_code
+                        )
                         st.session_state.roster_df = r_df
                         st.session_state.day_config_df = d_df
                         st.session_state.loaded_date = (config.year, config.month)

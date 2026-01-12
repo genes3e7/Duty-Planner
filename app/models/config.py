@@ -40,9 +40,6 @@ class ConstraintsConfig(BaseModel):
     max_consecutive_duties: int = Field(3, ge=1)
     """Maximum number of consecutive days a person can work before a break."""
 
-    solver_timeout_seconds: float = Field(10.0, gt=0)
-    """Maximum time in seconds the solver is allowed to run."""
-
     @field_validator("personnel_needed_per_shift")
     @classmethod
     def validate_needs(cls, v: Dict[str, int]) -> Dict[str, int]:
@@ -222,6 +219,9 @@ class AppConfig(BaseModel):
 
     month: int = Field(default_factory=_get_next_month_month, ge=1, le=12)
     """Month for the roster planning (1-12)."""
+
+    country_code: str = Field("SG")
+    """Country code for holiday calculations (e.g., 'SG', 'US')."""
 
     personnel: List[str] = Field(default_factory=list)
     """List of staff names available for duties."""

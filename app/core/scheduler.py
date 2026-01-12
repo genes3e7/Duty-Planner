@@ -288,7 +288,6 @@ class DutySchedulerEngine:
     def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
         """Runs the solver and returns the schedule."""
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = self.config.constraints.solver_timeout_seconds
 
         status = solver.Solve(self.model)
 
