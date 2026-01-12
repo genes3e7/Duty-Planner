@@ -71,24 +71,40 @@ def render_sidebar() -> str:
 
     # B. Upload (Load)
     uploaded_config = st.sidebar.file_uploader("Upload Config JSON", type=["json"], key="u_cfg")
+
+    # Initialize state to track processed file and prevent infinite reruns
+    if "config_upload_id" not in st.session_state:
+        st.session_state.config_upload_id = None
+
     if uploaded_config is not None:
-        try:
-            # Parse JSON and validate via Pydantic
-            content = uploaded_config.read()
-            new_config = AppConfig.model_validate_json(content)
+        # Identify the file uniquely (using name and size as proxy for ID)
+        current_file_id = f"{uploaded_config.name}_{uploaded_config.size}"
 
-            # Update session state
-            st.session_state.app_config = new_config
+        # Process only if this specific file hasn't been processed yet
+        if st.session_state.config_upload_id != current_file_id:
+            try:
+                # Parse JSON and validate via Pydantic
+                content = uploaded_config.read()
+                new_config = AppConfig.model_validate_json(content)
 
-            # Force reload of derived data if years/months changed or personnel changed
-            st.session_state.loaded_date = None
+                # Update session state
+                st.session_state.app_config = new_config
 
-            st.toast("Configuration loaded successfully!", icon="✅")
-            # Rerun to refresh the UI with new settings immediately
-            st.rerun()
+                # Force reload of derived data if years/months changed or personnel changed
+                st.session_state.loaded_date = None
 
-        except Exception as e:
-            st.error(f"Invalid configuration file: {e}")
+                # Mark as processed so we don't re-enter this block after rerun
+                st.session_state.config_upload_id = current_file_id
+
+                st.toast("Configuration loaded successfully!", icon="✅")
+                # Rerun to refresh the UI with new settings immediately
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Invalid configuration file: {e}")
+    else:
+        # Reset tracker if file is removed so it can be re-uploaded if needed
+        st.session_state.config_upload_id = None
 
     st.sidebar.divider()
 
