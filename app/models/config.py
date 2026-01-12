@@ -26,6 +26,19 @@ def _get_next_month_month() -> int:
     return (datetime.date.today() + relativedelta(months=1)).month
 
 
+def _deep_update(target: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively updates a dictionary.
+    Used to merge partial uploaded configs into the existing full config.
+    """
+    for key, value in update.items():
+        if isinstance(value, dict) and key in target and isinstance(target[key], dict):
+            _deep_update(target[key], value)
+        else:
+            target[key] = value
+    return target
+
+
 class ConstraintsConfig(BaseModel):
     """
     Configuration for solver constraints and rules.
@@ -274,21 +287,25 @@ class AppConfig(BaseModel):
     def from_dict_with_recovery(cls, data: Dict[str, Any], fallback: Optional["AppConfig"] = None) -> "AppConfig":
         """
         Creates a configuration from a dictionary, attempting to recover from validation errors.
-        If a field is invalid, it falls back to the value from the 'fallback' config
-        (or system defaults if fallback is None).
+        It merges the input 'data' into the 'fallback' config first (supporting partial updates),
+        and then fixes any validation errors by reverting to the fallback values.
 
         Args:
-            data: The input dictionary (e.g., from JSON).
-            fallback: The 'safe' configuration to fallback to.
+            data: The input dictionary (e.g., from uploaded JSON).
+            fallback: The 'safe' configuration to merge into and fallback to.
                       If uploading, this is likely the current server state.
                       If loading from disk, this is None (implies system defaults).
         """
-        # If no fallback is provided, use the system defaults as the source of truth
+        # If no fallback is provided, use the system defaults as the base
         if fallback is None:
             fallback = cls()
 
+        # 1. Merge Strategy: Start with Fallback, update with Input Data
+        # This allows partial JSONs to only update specific fields while keeping others.
+        current_data = fallback.model_dump(by_alias=True)
+        _deep_update(current_data, data)
+
         retries = 3
-        current_data = data
 
         for _ in range(retries):
             try:
@@ -300,32 +317,64 @@ class AppConfig(BaseModel):
                     loc = error["loc"]
                     logger.warning(f"Config Validation Error at {loc}: {error['msg']}. Resetting to fallback value.")
 
-                    # Helper to get value from the Fallback Object
+                    # 2. Retrieve Fallback Value (Safe Navigation)
+                    fallback_value = None
                     try:
                         val = fallback
                         for key in loc:
                             if isinstance(val, dict):
                                 val = val.get(key)
+                            elif isinstance(val, (list, tuple)) and isinstance(key, int):
+                                # Safe list access
+                                if 0 <= key < len(val):
+                                    val = val[key]
+                                else:
+                                    val = None  # Index out of bounds in fallback
                             else:
                                 val = getattr(val, str(key))
                         fallback_value = val
-                    except (AttributeError, KeyError, TypeError):
-                        # If fallback path doesn't exist (unlikely), force use system default for that top level
-                        logger.error(f"Could not find fallback for {loc}. Using generic default.")
-                        fallback_value = (
-                            None  # This might cause another error, but logic generally holds for our schema
-                        )
+                    except (AttributeError, KeyError, TypeError, IndexError):
+                        fallback_value = None
 
-                    # Helper to set value in the Data Dict
+                    # 3. Patch Data (Safe Assignment)
                     target = current_data
+                    path_is_safe = True
+
+                    # Navigate to parent of the error
                     for key in loc[:-1]:
+                        if isinstance(key, int):
+                            # Stop if we hit a list index; deep patching lists is risky/ambiguous
+                            path_is_safe = False
+                            break
+                        if not isinstance(target, dict):
+                            path_is_safe = False
+                            break
                         target = target.setdefault(key, {})
 
-                    # If fallback found, use it; else delete the bad key to let Pydantic use its default
-                    if fallback_value is not None:
-                        target[loc[-1]] = fallback_value
-                    elif loc[-1] in target:
-                        del target[loc[-1]]
+                    if path_is_safe and isinstance(target, dict):
+                        # Fix the specific field
+                        last_key = loc[-1]
+                        if fallback_value is not None:
+                            target[last_key] = fallback_value
+                        elif last_key in target:
+                            del target[last_key]
+                    else:
+                        # Fallback for complex list/structure errors: Reset top-level field
+                        root_key = loc[0]
+                        root_val = None
+                        if fallback:
+                            try:
+                                if isinstance(fallback, dict):
+                                    root_val = fallback.get(root_key)
+                                else:
+                                    root_val = getattr(fallback, str(root_key), None)
+                            except Exception:
+                                root_val = None
+
+                        if root_val is not None:
+                            current_data[root_key] = root_val
+                        elif root_key in current_data:
+                            del current_data[root_key]
 
         # If retries exhausted (unlikely), return the fallback completely
         logger.error("Too many validation failures. Reverting to full fallback config.")
