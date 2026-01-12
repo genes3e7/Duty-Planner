@@ -24,7 +24,7 @@ def _update_checkbox_field(config: AppConfig, field_name: str, label: str, curre
         config.points = config.points.model_copy(update={field_name: new_val})
 
 
-def render_settings(config: AppConfig):
+def render_settings(config: AppConfig) -> None:
     """
     Renders the settings page.
 

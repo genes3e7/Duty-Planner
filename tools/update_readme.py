@@ -46,6 +46,7 @@ def main():
             try:
                 return tuple(map(int, v.split(".")))
             except ValueError:
+                print(f"Warning: Malformed version string '{v}', skipping from sort order.")
                 return (0, 0)
 
         unique_versions.sort(key=version_key)

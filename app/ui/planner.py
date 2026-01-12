@@ -20,7 +20,7 @@ from app.models.config import AppConfig
 logger = logging.getLogger(__name__)
 
 
-def render_planner(config: AppConfig):
+def render_planner(config: AppConfig) -> None:
     """
     Renders the main planning grid and actions.
 
