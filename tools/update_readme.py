@@ -83,11 +83,8 @@ def main():
             print(f"Error: {readme_path} not found.")
             sys.exit(1)
 
-        # Atomic write: write to temp file, then rename
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".md") as tmp:
-            tmp.write(new_content)
-            tmp_path = tmp.name
-        shutil.move(tmp_path, readme_path)
+        with open(readme_path, "r", encoding="utf-8") as f:
+            content = f.read()
 
         # Regex to find and replace the existing badge section
         # Captures start marker, content, and end marker
@@ -97,8 +94,11 @@ def main():
         if match:
             new_content = re.sub(pattern, f"\\1\n{badges_md}\n\\3", content, flags=re.DOTALL)
 
-            with open(readme_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            # Atomic write: write to temp file, then rename
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".md") as tmp:
+                tmp.write(new_content)
+                tmp_path = tmp.name
+            shutil.move(tmp_path, readme_path)
             print("README.md updated successfully with badges.")
         else:
             print("Error: Badge markers not found in README.md")

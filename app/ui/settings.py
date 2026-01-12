@@ -15,6 +15,8 @@ def _ensure_pending_state() -> None:
         st.session_state.pending_points_updates = {}
     if "pending_constraints_updates" not in st.session_state:
         st.session_state.pending_constraints_updates = {}
+    if "pending_personnel_update" not in st.session_state:
+        st.session_state.pending_personnel_update = None
 
 
 def _update_number_field(field_name: str, label: str, current_value: float) -> None:
@@ -61,8 +63,8 @@ def render_settings(config: AppConfig) -> None:
         if not new_list:
             st.warning("Personnel list cannot be empty. At least one staff member is required.")
         else:
-            # Update the passed config object directly, ensuring consistency
-            config.personnel = new_list
+            # Set pending update instead of direct mutation
+            st.session_state.pending_personnel_update = new_list
         # We don't rerun here to allow bulk edits, but data binds to the object reference
 
     st.markdown("---")
@@ -197,7 +199,12 @@ def render_settings(config: AppConfig) -> None:
             **config.constraints.personnel_needed_per_shift,
             **st.session_state.pending_constraints_updates,
         }
-        config.constraints.personnel_needed_per_shift = new_constraints
+        # Use model_copy for consistency with the immutable pattern used for points
+        config.constraints = config.constraints.model_copy(update={"personnel_needed_per_shift": new_constraints})
         st.session_state.pending_constraints_updates = {}
+
+    if st.session_state.get("pending_personnel_update") is not None:
+        config.personnel = st.session_state.pending_personnel_update
+        st.session_state.pending_personnel_update = None
 
     st.info("Settings are applied in memory. Click 'Save Configuration' in the sidebar to persist to disk.")
