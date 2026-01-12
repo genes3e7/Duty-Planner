@@ -44,7 +44,7 @@ class DataManager:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            
+
             # Use recovery method with no fallback (implies system defaults)
             return AppConfig.from_dict_with_recovery(data, fallback=None)
 

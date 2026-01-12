@@ -274,12 +274,12 @@ class AppConfig(BaseModel):
     def from_dict_with_recovery(cls, data: Dict[str, Any], fallback: Optional["AppConfig"] = None) -> "AppConfig":
         """
         Creates a configuration from a dictionary, attempting to recover from validation errors.
-        If a field is invalid, it falls back to the value from the 'fallback' config 
+        If a field is invalid, it falls back to the value from the 'fallback' config
         (or system defaults if fallback is None).
-        
+
         Args:
             data: The input dictionary (e.g., from JSON).
-            fallback: The 'safe' configuration to fallback to. 
+            fallback: The 'safe' configuration to fallback to.
                       If uploading, this is likely the current server state.
                       If loading from disk, this is None (implies system defaults).
         """
@@ -312,13 +312,15 @@ class AppConfig(BaseModel):
                     except (AttributeError, KeyError, TypeError):
                         # If fallback path doesn't exist (unlikely), force use system default for that top level
                         logger.error(f"Could not find fallback for {loc}. Using generic default.")
-                        fallback_value = None # This might cause another error, but logic generally holds for our schema
+                        fallback_value = (
+                            None  # This might cause another error, but logic generally holds for our schema
+                        )
 
                     # Helper to set value in the Data Dict
                     target = current_data
                     for key in loc[:-1]:
                         target = target.setdefault(key, {})
-                    
+
                     # If fallback found, use it; else delete the bad key to let Pydantic use its default
                     if fallback_value is not None:
                         target[loc[-1]] = fallback_value

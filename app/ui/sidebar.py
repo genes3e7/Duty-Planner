@@ -87,7 +87,7 @@ def render_sidebar() -> str:
                 # Parse JSON dict
                 content = uploaded_config.read()
                 data = json.loads(content)
-                
+
                 # Robust validation: Fallback to current server config for any invalid fields
                 new_config = AppConfig.from_dict_with_recovery(data, fallback=st.session_state.app_config)
 
