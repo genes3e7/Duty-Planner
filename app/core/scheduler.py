@@ -202,9 +202,9 @@ class DutySchedulerEngine:
         soft_ban_transitions = [
             ("AM", "PM"),
             ("PM", "AM"),
-            ("PM", "S/B"),
-            ("SB", "AM"),
-            ("SB", "SB"),
+            ("PM", "S/B"),  # Fixed: SB -> S/B
+            ("S/B", "AM"),  # Fixed: SB -> S/B
+            ("S/B", "S/B"),  # Fixed: SB -> S/B
         ]
 
         for person in self.req.staff_ids:

@@ -232,6 +232,14 @@ class AppConfig(BaseModel):
     points: PointsConfig = Field(default_factory=PointsConfig)
     """Point calculation settings."""
 
+    @field_validator("country_code")
+    @classmethod
+    def validate_country_code(cls, v: str) -> str:
+        """Ensures country code is a non-empty 2-letter code."""
+        if not v or len(v) != 2 or not v.isalpha():
+            raise ValueError(f"Invalid country code '{v}'. Expected 2-letter ISO code.")
+        return v.upper()
+
     @classmethod
     def default(cls) -> "AppConfig":
         """

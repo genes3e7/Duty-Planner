@@ -38,14 +38,7 @@ def get_holidays(year: int, country_code: str = "SG") -> holidays.HolidayBase:
     Defaults to Singapore (SG) if code is invalid or not found.
     """
     try:
-        # Check if country code is supported by holidays library
-        if hasattr(holidays, country_code):
-            # Instantiate the holiday class, e.g., holidays.US(years=year)
-            holiday_cls = getattr(holidays, country_code)
-            return holiday_cls(years=year)
-        else:
-            # Fallback to direct lookup (sometimes needed for country codes not top-level)
-            return holidays.country_holidays(country_code, years=year)
+        return holidays.country_holidays(country_code, years=year)
     except Exception as e:
         logger.warning(f"Could not load holidays for '{country_code}': {e}. Fallback to SG.")
         return holidays.SG(years=year)
