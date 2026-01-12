@@ -11,7 +11,7 @@ from typing import Any, Container, Dict, List, Optional, Union
 
 import pandas as pd
 from dateutil.relativedelta import relativedelta
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,19 @@ def _get_next_month_year() -> int:
 def _get_next_month_month() -> int:
     """Returns the month (1-12) of the next month relative to today."""
     return (datetime.date.today() + relativedelta(months=1)).month
+
+
+def _deep_update(target: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively updates a dictionary.
+    Used to merge partial uploaded configs into the existing full config.
+    """
+    for key, value in update.items():
+        if isinstance(value, dict) and key in target and isinstance(target[key], dict):
+            _deep_update(target[key], value)
+        else:
+            target[key] = value
+    return target
 
 
 class ConstraintsConfig(BaseModel):
@@ -40,8 +53,8 @@ class ConstraintsConfig(BaseModel):
     max_consecutive_duties: int = Field(3, ge=1)
     """Maximum number of consecutive days a person can work before a break."""
 
-    solver_timeout_seconds: float = Field(10.0, gt=0)
-    """Maximum time in seconds the solver is allowed to run."""
+    solver_timeout_seconds: float = Field(90.0, ge=1.0)
+    """Maximum time (in seconds) the solver is allowed to run."""
 
     @field_validator("personnel_needed_per_shift")
     @classmethod
@@ -223,6 +236,9 @@ class AppConfig(BaseModel):
     month: int = Field(default_factory=_get_next_month_month, ge=1, le=12)
     """Month for the roster planning (1-12)."""
 
+    country_code: str = Field("SG")
+    """Country code for holiday calculations (e.g., 'SG', 'US')."""
+
     personnel: List[str] = Field(default_factory=list)
     """List of staff names available for duties."""
 
@@ -231,6 +247,15 @@ class AppConfig(BaseModel):
 
     points: PointsConfig = Field(default_factory=PointsConfig)
     """Point calculation settings."""
+
+    @field_validator("country_code")
+    @classmethod
+    def validate_country_code(cls, v: str) -> str:
+        """Ensures country code is valid. Defaults to SG on error."""
+        if not v or not isinstance(v, str) or not v.isalpha():
+            logger.warning(f"Invalid country code '{v}' detected. Defaulting to 'SG'.")
+            return "SG"
+        return v.upper()
 
     @classmethod
     def default(cls) -> "AppConfig":
@@ -254,12 +279,103 @@ class AppConfig(BaseModel):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
         """
-        Creates a configuration instance from a dictionary.
-
-        Args:
-            data (Dict[str, Any]): Dictionary data (e.g., loaded from JSON).
-
-        Returns:
-            AppConfig: The validated configuration object.
+        Creates a configuration instance from a dictionary using strict validation.
         """
         return cls.model_validate(data)
+
+    @classmethod
+    def from_dict_with_recovery(cls, data: Dict[str, Any], fallback: Optional["AppConfig"] = None) -> "AppConfig":
+        """
+        Creates a configuration from a dictionary, attempting to recover from validation errors.
+        It merges the input 'data' into the 'fallback' config first (supporting partial updates),
+        and then fixes any validation errors by reverting to the fallback values.
+
+        Args:
+            data: The input dictionary (e.g., from uploaded JSON).
+            fallback: The 'safe' configuration to merge into and fallback to.
+                      If uploading, this is likely the current server state.
+                      If loading from disk, this is None (implies system defaults).
+        """
+        # If no fallback is provided, use the system defaults as the base
+        if fallback is None:
+            fallback = cls()
+
+        # 1. Merge Strategy: Start with Fallback, update with Input Data
+        # This allows partial JSONs to only update specific fields while keeping others.
+        current_data = fallback.model_dump(by_alias=True)
+        _deep_update(current_data, data)
+
+        retries = 3
+
+        for _ in range(retries):
+            try:
+                # Try validation
+                return cls.model_validate(current_data)
+            except ValidationError as e:
+                # Iterate errors and patch current_data
+                for error in e.errors():
+                    loc = error["loc"]
+                    logger.warning(f"Config Validation Error at {loc}: {error['msg']}. Resetting to fallback value.")
+
+                    # 2. Retrieve Fallback Value (Safe Navigation)
+                    fallback_value = None
+                    try:
+                        val = fallback
+                        for key in loc:
+                            if isinstance(val, dict):
+                                val = val.get(key)
+                            elif isinstance(val, (list, tuple)) and isinstance(key, int):
+                                # Safe list access
+                                if 0 <= key < len(val):
+                                    val = val[key]
+                                else:
+                                    val = None  # Index out of bounds in fallback
+                            else:
+                                val = getattr(val, str(key))
+                        fallback_value = val
+                    except (AttributeError, KeyError, TypeError, IndexError):
+                        fallback_value = None
+
+                    # 3. Patch Data (Safe Assignment)
+                    target = current_data
+                    path_is_safe = True
+
+                    # Navigate to parent of the error
+                    for key in loc[:-1]:
+                        if isinstance(key, int):
+                            # Stop if we hit a list index; deep patching lists is risky/ambiguous
+                            path_is_safe = False
+                            break
+                        if not isinstance(target, dict):
+                            path_is_safe = False
+                            break
+                        target = target.setdefault(key, {})
+
+                    if path_is_safe and isinstance(target, dict):
+                        # Fix the specific field
+                        last_key = loc[-1]
+                        if fallback_value is not None:
+                            target[last_key] = fallback_value
+                        elif last_key in target:
+                            del target[last_key]
+                    else:
+                        # Fallback for complex list/structure errors: Reset top-level field
+                        root_key = loc[0]
+                        root_val = None
+                        if fallback:
+                            try:
+                                if isinstance(fallback, dict):
+                                    root_val = fallback.get(root_key)
+                                else:
+                                    root_val = getattr(fallback, str(root_key), None)
+                            except Exception:
+                                root_val = None
+
+                        if root_val is not None:
+                            current_data[root_key] = root_val
+                        elif root_key in current_data:
+                            del current_data[root_key]
+
+        # If retries exhausted (unlikely), return the fallback completely
+        logger.error("Too many validation failures. Reverting to full fallback config.")
+        return fallback

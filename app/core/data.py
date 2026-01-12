@@ -28,8 +28,8 @@ class DataManager:
         """
         Loads the application configuration from a JSON file.
 
-        If the file does not exist or is corrupted, a default configuration
-        is generated and returned (safe fallback).
+        Attempts to recover from partial corruption by falling back to system defaults
+        for invalid fields, rather than discarding the entire file.
 
         Args:
             filepath (str): Path to the JSON config file.
@@ -44,9 +44,12 @@ class DataManager:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return AppConfig.from_dict(data)
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Failed to parse config file: {e}. Using defaults.")
+
+            # Use recovery method with no fallback (implies system defaults)
+            return AppConfig.from_dict_with_recovery(data, fallback=None)
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse config file (JSON error): {e}. Using defaults.")
             return AppConfig.default()
         except Exception as e:
             logger.error(f"Unexpected error loading config: {e}. Using defaults.")

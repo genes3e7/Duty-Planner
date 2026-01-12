@@ -1,6 +1,7 @@
 {
     "year": 2026,
     "month": 2,
+    "country_code": "SG",
     "personnel": [
         "Staff 01",
         "Staff 02",
@@ -30,8 +31,8 @@
             "24H": 1
         },
         "standby_per_day": 1,
-        "max_consecutive_duties": 3,
-        "solver_timeout_seconds": 10.0
+        "max_consecutive_duties": 2,
+        "solver_timeout_seconds": 90.0
     },
     "points": {
         "AM": 1.0,

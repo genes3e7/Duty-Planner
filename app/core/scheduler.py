@@ -53,6 +53,7 @@ class DutySchedulerEngine:
         self.model = cp_model.CpModel()
         self.vars: Dict[Tuple[str, int, str], Any] = {}
         self.shifts = list(C.ACTIVE_DUTIES)  # AM, PM, 24H, S/B
+        self.soft_ban_penalties: List[Any] = []  # Stores penalty variables for soft bans
 
         # Determine number of days from the day_modes map
         self.days_range = sorted(self.req.day_modes.keys())
@@ -69,12 +70,12 @@ class DutySchedulerEngine:
         # 2. Create Variables
         self._create_variables()
 
-        # 3. Apply Hard Constraints
+        # 3. Apply Hard Constraints & Soft Bans
         self._apply_daily_coverage()
         self._apply_fixed_assignments()
         self._apply_shift_logic()
 
-        # 4. Apply Fairness Objective
+        # 4. Apply Fairness Objective (incorporating Soft Bans)
         self._apply_fairness_objective()
 
     def _create_variables(self):
@@ -162,9 +163,8 @@ class DutySchedulerEngine:
         """
         Applies logic rules:
         1. Max one shift per day per person.
-        2. No consecutive duties limit.
-        3. Cannot work if worked 24H yesterday.
-        4. No duty -> Heavy (24H/SB) -> No duty logic.
+        2. Max consecutive duties.
+        3. Transition Rules (Hard Bans & Soft Bans).
         """
         # 1. Max one shift per day
         for person in self.req.staff_ids:
@@ -173,23 +173,7 @@ class DutySchedulerEngine:
                 if daily_vars:
                     self.model.Add(sum(daily_vars) <= 1)
 
-        # 2. No work after 24H (Explicit)
-        # This is strictly for "24H" -> Empty Day.
-        for person in self.req.staff_ids:
-            for day in self.days_range:
-                if (person, day, "24H") in self.vars:
-                    next_day = day + 1
-                    if next_day in self.days_range:
-                        for shift in self.shifts:
-                            if (person, next_day, shift) in self.vars:
-                                self.model.AddBoolOr(
-                                    [
-                                        self.vars[(person, day, "24H")].Not(),
-                                        self.vars[(person, next_day, shift)].Not(),
-                                    ]
-                                )
-
-        # 3. Max consecutive duties
+        # 2. Max consecutive duties
         limit = self.config.constraints.max_consecutive_duties
         for person in self.req.staff_ids:
             for i in range(len(self.days_range) - limit):
@@ -203,69 +187,80 @@ class DutySchedulerEngine:
                 if window_vars:
                     self.model.Add(sum(window_vars) <= limit)
 
-        # 4. Strict Isolation for S/B and 24H
-        # "Heavy" duties (24H, S/B) must be surrounded by rest days (no duties).
-        # This implies:
-        #   - Day D (Heavy) => Day D-1 (Rest)
-        #   - Day D (Heavy) => Day D+1 (Rest)
-        # We iterate through all days. If a day is Heavy, neighbors must be empty.
+        # 3. Transition Logic (Hard Bans & Soft Bans)
+        # Forbidden pairs: (Day D Shift, Day D+1 Shift) -> Strictly prevented
+        forbidden_transitions = [
+            ("PM", "PM"),
+            ("PM", "24H"),
+            ("24H", "AM"),
+            ("24H", "24H"),
+            ("24H", "S/B"),
+            ("S/B", "24H"),
+        ]
 
-        heavy_shifts = ["24H", "S/B"]
+        # Soft Ban pairs: (Day D Shift, Day D+1 Shift) -> Discouraged via penalty
+        soft_ban_transitions = [
+            ("AM", "PM"),
+            ("PM", "AM"),
+            ("PM", "S/B"),  # Fixed: SB -> S/B
+            ("S/B", "AM"),  # Fixed: SB -> S/B
+            ("S/B", "S/B"),  # Fixed: SB -> S/B
+        ]
 
         for person in self.req.staff_ids:
             for day in self.days_range:
-                # Check if this day has a potential heavy shift
-                day_heavy_vars = [self.vars[(person, day, s)] for s in heavy_shifts if (person, day, s) in self.vars]
-
-                if not day_heavy_vars:
+                next_day = day + 1
+                if next_day not in self.days_range:
                     continue
 
-                # If any heavy shift is assigned on Day D...
-                is_heavy_day = self.model.NewBoolVar(f"{person}_is_heavy_d{day}")
-                self.model.Add(sum(day_heavy_vars) >= 1).OnlyEnforceIf(is_heavy_day)
-                self.model.Add(sum(day_heavy_vars) == 0).OnlyEnforceIf(is_heavy_day.Not())
+                # --- Handle Hard Bans ---
+                for prev_shift, next_shift in forbidden_transitions:
+                    if (person, day, prev_shift) in self.vars and (person, next_day, next_shift) in self.vars:
+                        # Logic: NOT (Prev AND Next)
+                        self.model.AddBoolOr(
+                            [
+                                self.vars[(person, day, prev_shift)].Not(),
+                                self.vars[(person, next_day, next_shift)].Not(),
+                            ]
+                        )
 
-                # ... then Day D+1 must be empty (No Shift)
-                next_day = day + 1
-                if next_day in self.days_range:
-                    next_day_shifts = [
-                        self.vars[(person, next_day, s)] for s in self.shifts if (person, next_day, s) in self.vars
-                    ]
-                    if next_day_shifts:
-                        self.model.Add(sum(next_day_shifts) == 0).OnlyEnforceIf(is_heavy_day)
+                # --- Handle Soft Bans ---
+                for prev_shift, next_shift in soft_ban_transitions:
+                    if (person, day, prev_shift) in self.vars and (person, next_day, next_shift) in self.vars:
+                        # Create a boolean variable that is True ONLY if this bad transition occurs
+                        violation_var = self.model.NewBoolVar(f"soft_ban_{person}_{day}_{prev_shift}_{next_shift}")
 
-                # ... and Day D-1 must be empty (No Shift)
-                prev_day = day - 1
-                if prev_day in self.days_range:
-                    prev_day_shifts = [
-                        self.vars[(person, prev_day, s)] for s in self.shifts if (person, prev_day, s) in self.vars
-                    ]
-                    if prev_day_shifts:
-                        self.model.Add(sum(prev_day_shifts) == 0).OnlyEnforceIf(is_heavy_day)
+                        # violation_var <=> (Prev AND Next)
+                        # This utility function forces violation_var to 1 if both conditions are met, else 0
+                        self.model.AddMultiplicationEquality(
+                            violation_var,
+                            [self.vars[(person, day, prev_shift)], self.vars[(person, next_day, next_shift)]],
+                        )
+
+                        self.soft_ban_penalties.append(violation_var)
 
     def _apply_fairness_objective(self):
         """
-        Minimizes the difference between max and min points across all staff.
-        Uses exact weights passed from Logic layer to account for Multipliers.
+        Minimizes (Max Points - Min Points) + (Soft Ban Penalties).
         """
         person_points = []
-
-        # Scaling factor matching logic.py (preserves decimal precision)
         SCALE = 100
+
+        # High penalty to discourage soft bans (equivalent to 50 points difference)
+        # Rationale: This value is chosen to be significantly higher than normal point variations
+        # to effectively act as a soft constraint, while still allowing the solver to violate it
+        # if no other solution exists (unlike a hard constraint).
+        SOFT_BAN_WEIGHT = 50 * SCALE
 
         for person in self.req.staff_ids:
             expr = []
-            # Add Previous Balance (Scaled)
             expr.append(int(self.prev_balance.get(person, 0.0) * SCALE))
 
             for day in self.days_range:
                 for shift in self.shifts:
                     if (person, day, shift) not in self.vars:
                         continue
-
-                    # Use EXACT pre-calculated weight (includes PH/Weekend/Friday multipliers)
                     weight = self.req.shift_weights.get((day, shift), 0)
-
                     if weight > 0:
                         expr.append(self.vars[(person, day, shift)] * weight)
 
@@ -276,14 +271,24 @@ class DutySchedulerEngine:
         if not person_points:
             return
 
-        # Minimize (Max - Min)
         min_pts = self.model.NewIntVar(0, 10000000, "min_points")
         max_pts = self.model.NewIntVar(0, 10000000, "max_points")
 
         self.model.AddMinEquality(min_pts, person_points)
         self.model.AddMaxEquality(max_pts, person_points)
 
-        self.model.Minimize(max_pts - min_pts)
+        # Calculate total penalty from soft bans safely
+        if self.soft_ban_penalties:
+            max_penalty = len(self.soft_ban_penalties) * SOFT_BAN_WEIGHT
+            total_penalty = self.model.NewIntVar(0, max_penalty, "total_penalty")
+            self.model.Add(total_penalty == sum(self.soft_ban_penalties) * SOFT_BAN_WEIGHT)
+        else:
+            total_penalty = self.model.NewIntVar(0, 0, "total_penalty")
+            self.model.Add(total_penalty == 0)
+
+        # Minimize Fairness Gap + Penalties
+        # This ensures stats remain accurate (based on person_points), but solver choice is influenced by penalty
+        self.model.Minimize((max_pts - min_pts) + total_penalty)
 
     def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
         """Runs the solver and returns the schedule."""
