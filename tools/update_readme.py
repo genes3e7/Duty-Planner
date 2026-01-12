@@ -95,10 +95,19 @@ def main():
             new_content = re.sub(pattern, f"\\1\n{badges_md}\n\\3", content, flags=re.DOTALL)
 
             # Atomic write: write to temp file, then rename
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".md") as tmp:
-                tmp.write(new_content)
-                tmp_path = tmp.name
-            shutil.move(tmp_path, readme_path)
+            readme_dir = os.path.dirname(readme_path) or "."
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", delete=False, suffix=".md", dir=readme_dir
+                ) as tmp:
+                    tmp.write(new_content)
+                    tmp_path = tmp.name
+                shutil.move(tmp_path, readme_path)
+            except Exception as e:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                raise e
             print("README.md updated successfully with badges.")
         else:
             print("Error: Badge markers not found in README.md")
