@@ -57,12 +57,12 @@ def render_settings(config: AppConfig) -> None:
     # De-duplicate names using dict keys to preserve order
     new_list = list(dict.fromkeys([n.strip() for n in new_names_str.split(",") if n.strip()]))
 
-    # Store personnel changes in session state instead of direct mutation
     if new_list != config.personnel:
         if not new_list:
             st.warning("Personnel list cannot be empty. At least one staff member is required.")
         else:
-            st.session_state.app_config.personnel = new_list
+            # Update the passed config object directly, ensuring consistency
+            config.personnel = new_list
         # We don't rerun here to allow bulk edits, but data binds to the object reference
 
     st.markdown("---")

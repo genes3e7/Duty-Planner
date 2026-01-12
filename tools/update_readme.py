@@ -11,7 +11,9 @@ Usage:
 
 import os
 import re
+import shutil
 import sys
+import tempfile
 import traceback
 
 
@@ -81,8 +83,11 @@ def main():
             print(f"Error: {readme_path} not found.")
             sys.exit(1)
 
-        with open(readme_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        # Atomic write: write to temp file, then rename
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".md") as tmp:
+            tmp.write(new_content)
+            tmp_path = tmp.name
+        shutil.move(tmp_path, readme_path)
 
         # Regex to find and replace the existing badge section
         # Captures start marker, content, and end marker
