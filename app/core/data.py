@@ -1,139 +1,186 @@
 """
-data_manager.py
+app/core/data.py
 
-Handles File I/O operations (JSON Config, Excel Import/Export).
+Handles persistent data storage and retrieval.
+Responsible for loading/saving JSON configurations and importing Excel history.
 """
 
 import json
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, Union
 
 import pandas as pd
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from app import constants as C
 from app.models.config import AppConfig
 
+logger = logging.getLogger(__name__)
+
 
 class DataManager:
-    """Static Utility Class for Data persistence."""
+    """
+    Static utility class for file I/O operations.
+    """
 
     @staticmethod
     def load_config(filepath: str = C.CONFIG_FILE) -> AppConfig:
-        """Loads JSON config into AppConfig object."""
+        """
+        Loads the application configuration from a JSON file.
+
+        If the file does not exist or is corrupted, a default configuration
+        is generated and returned (safe fallback).
+
+        Args:
+            filepath (str): Path to the JSON config file.
+
+        Returns:
+            AppConfig: The loaded or default configuration object.
+        """
         if not os.path.exists(filepath):
+            logger.warning(f"Config file not found at {filepath}. Using defaults.")
             return AppConfig.default()
+
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return AppConfig.from_dict(data)
+            return AppConfig.from_dict(data)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse config file: {e}. Using defaults.")
+            return AppConfig.default()
         except Exception as e:
-            logging.error(f"Config load error: {e}")
+            logger.error(f"Unexpected error loading config: {e}. Using defaults.")
             return AppConfig.default()
 
     @staticmethod
-    def save_config(config: AppConfig, filepath: str = C.CONFIG_FILE) -> None:
-        """Saves AppConfig object to JSON."""
-        try:
-            data = config.to_dict()
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
-        except IOError as e:
-            logging.error(f"Config save failed: {e}")
-            raise e
-
-    @staticmethod
-    def load_previous_balance(filepath: str) -> Dict[str, float]:
+    def save_config(config: AppConfig, filepath: str = C.CONFIG_FILE) -> bool:
         """
-        Imports balances from Excel.
-        Uses fuzzy matching for column headers.
+        Saves the current configuration to a JSON file.
+
+        Uses a write-then-replace strategy (atomic write) to prevent data corruption
+        if the process crashes during write.
+
+        Args:
+            config (AppConfig): The configuration object to save.
+            filepath (str): Target file path.
+
+        Returns:
+            bool: True if save was successful, False otherwise.
         """
-        if not filepath or not os.path.exists(filepath):
-            return {}
+        tmp_path = f"{filepath}.tmp"
         try:
-            df = pd.read_excel(filepath)
-            cols = [str(c).lower().strip() for c in df.columns]
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(config.to_dict(), f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
 
-            name_idx = next((i for i, c in enumerate(cols) if "name" in c), None)
-            # Fix: Broken down to satisfy line length limits
-            bal_idx = next(
-                (
-                    i
-                    for i, c in enumerate(cols)
-                    if any(x in c for x in ["carry", "bal", "roll"])
-                ),
-                None,
-            )
+            # Atomic replacement
+            os.replace(tmp_path, filepath)
 
-            if name_idx is None or bal_idx is None:
-                return {}
-
-            result = {}
-            for _, row in df.iterrows():
+            logger.info("Configuration saved successfully.")
+            return True
+        except Exception as e:
+            logger.error(f"Config save error: {e}")
+            # Clean up temp file if it exists
+            if os.path.exists(tmp_path):
                 try:
-                    name = str(row[df.columns[name_idx]]).strip()
-                    val = float(row[df.columns[bal_idx]])
-                    if name:
-                        result[name] = val
-                except Exception:
-                    continue
-            return result
-        except Exception:
-            return {}
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            return False
 
     @staticmethod
-    def export_schedule(
-        schedule_data: Dict[Any, str],
-        point_summary: List[Dict],
-        config: AppConfig,
-        save_path: str,
-    ) -> None:
-        """Exports grid and summary to formatted Excel."""
-        days = max([k[1] for k in schedule_data.keys()]) if schedule_data else 30
+    def load_previous_balance(excel_file: Union[str, Any]) -> Dict[str, float]:
+        """
+        Imports 'Carry Over' points from a previous month's Excel roster.
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = C.EXCEL_SHEET_TITLE
+        Args:
+            excel_file: Path to the Excel file or a file-like object (BytesIO).
 
-        ws.append(
-            C.EXCEL_HEADERS_STATIC
-            + [d for d in range(1, days + 1)]
-            + C.EXCEL_HEADERS_SUFFIX
-        )
+        Returns:
+            Dict[str, float]: A mapping of {Name: Carry Over Points}.
+                              Returns an empty dict if excel_file is falsy.
 
-        pt_map = {str(i["Name"]): i for i in point_summary}
+        Raises:
+            ValueError: If required columns ('Name', 'Carry Over') are missing.
+            Exception: Re-raises other parsing errors after logging.
+        """
+        if not excel_file:
+            return {}
 
-        for name in sorted(config.personnel):
-            row = [name]
-            for d in range(1, days + 1):
-                row.append(schedule_data.get((name, d), ""))
+        try:
+            # pandas read_excel supports both path and file-like objects
+            df = pd.read_excel(excel_file)
 
-            p = pt_map.get(
-                name, {"Brought Fwd": 0.0, "Month Pts": 0.0, "Carry Over": 0.0}
-            )
-            row.extend([p["Brought Fwd"], p["Month Pts"], p["Carry Over"]])
-            ws.append(row)
+            # Normalize column names for robustness
+            df.columns = [str(c).strip() for c in df.columns]
 
-        # Styles
-        fill_header = PatternFill("solid", fgColor=C.COLOR_HEADER_BG.replace("#", ""))
-        fill_x = PatternFill("solid", fgColor=C.COLOR_CONSTRAINT_BG.replace("#", ""))
-        border = Border(
-            left=Side(style="thin"),
-            right=Side(style="thin"),
-            top=Side(style="thin"),
-            bottom=Side(style="thin"),
-        )
+            if "Name" not in df.columns or "Carry Over" not in df.columns:
+                raise ValueError("Excel file must contain 'Name' and 'Carry Over' columns.")
 
-        for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
-            for cell in row:
-                cell.border = border
-                cell.alignment = Alignment(horizontal="center")
-                if cell.row == 1:
-                    cell.font = Font(bold=True)
-                    cell.fill = fill_header
-                if cell.value == C.ShiftType.LEAVE.value:
-                    cell.fill = fill_x
+            balance = {}
+            for _, row in df.iterrows():
+                name = row["Name"]
+                val = row["Carry Over"]
 
-        wb.save(save_path)
+                # Ensure value is numeric
+                try:
+                    float_val = float(val)
+                    balance[str(name)] = float_val
+                except (ValueError, TypeError):
+                    continue  # Skip invalid rows
+
+            return balance
+        except Exception as e:
+            logger.error(f"Error loading previous balance: {e}")
+            raise
+
+    @staticmethod
+    def load_constraints(excel_file: Union[str, Any]) -> Dict[str, Dict[int, str]]:
+        """
+        Imports constraints and duty requests from an Excel file.
+        Expected format: Column 'Name', followed by numbered columns (1, 2, 3...) representing days.
+
+        Args:
+            excel_file: Path to the Excel file or a file-like object.
+
+        Returns:
+            Dict[str, Dict[int, str]]: A nested dict {Name: {DayNum: Value}}.
+        """
+        if not excel_file:
+            return {}
+
+        try:
+            df = pd.read_excel(excel_file)
+            # Normalize columns
+            df.columns = [str(c).strip() for c in df.columns]
+
+            if "Name" not in df.columns:
+                raise ValueError("Excel file must contain 'Name' column.")
+
+            constraints = {}
+            # Identify day columns (digits like '1', '2', '30')
+            day_cols = [c for c in df.columns if c.isdigit()]
+
+            for _, row in df.iterrows():
+                name = row["Name"]
+                if not isinstance(name, str) or not name:
+                    continue
+
+                person_constraints = {}
+                for day_str in day_cols:
+                    val = row[day_str]
+                    # Check for non-empty string values
+                    if pd.notna(val):
+                        val_str = str(val).strip().upper()
+                        if val_str:
+                            # Use int key for day to be generic
+                            person_constraints[int(day_str)] = val_str
+
+                if person_constraints:
+                    constraints[name] = person_constraints
+
+            return constraints
+        except Exception as e:
+            logger.error(f"Error loading constraints: {e}")
+            raise

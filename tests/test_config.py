@@ -1,40 +1,73 @@
-from app.constants import ShiftType
-from app.models.config import AppConfig, PointsConfig
+"""
+tests/test_config.py
+
+Tests for configuration models and validation logic.
+Verifies that defensive validators prevent invalid configurations.
+"""
+
+import datetime
+
+import pytest
+from dateutil.relativedelta import relativedelta
+from pydantic import ValidationError
+
+from app.models.config import AppConfig, ConstraintsConfig, PointsConfig
 
 
-def test_config_defaults():
-    """Test default configuration values."""
+def test_app_config_defaults():
+    """Test that default config generates valid structure with dynamic next-month date."""
     cfg = AppConfig.default()
-    assert cfg.year == 2025
-    assert cfg.mode == "hybrid"
-    assert cfg.constraints.personnel_needed_per_shift["AM"] == 1
+
+    # Calculate expected next month
+    expected = datetime.date.today() + relativedelta(months=1)
+
+    assert cfg.year == expected.year
+    assert cfg.month == expected.month
+
+    assert len(cfg.personnel) == 20
+    assert cfg.constraints.standby_per_day == 1
 
 
-def test_points_config_lookup():
-    """Test that points are correctly retrieved by shift type."""
-    pts = PointsConfig(AM=1.5, PM=2.0, FULL_24H=5.0)
+def test_validation_year_month():
+    """Test validation for year and month ranges."""
+    # Valid
+    AppConfig(year=2025, month=12)
 
-    assert pts.get_by_type(ShiftType.AM) == 1.5
-    assert pts.get_by_type(ShiftType.PM) == 2.0
-    assert pts.get_by_type(ShiftType.FULL_24H) == 5.0
-    assert pts.get_by_type("INVALID") == 0.0
+    # Invalid Month
+    with pytest.raises(ValidationError):
+        AppConfig(year=2025, month=13)
+
+    with pytest.raises(ValidationError):
+        AppConfig(year=2025, month=0)
+
+    # Invalid Year
+    with pytest.raises(ValidationError):
+        AppConfig(year=1999, month=1)
 
 
-def test_config_serialization():
-    """Test to_dict and from_dict roundtrip."""
-    cfg = AppConfig.default()
-    cfg.personnel = ["Alice", "Bob"]
-    cfg.points.AM = 5.0
+def test_validation_negative_needs():
+    """Test that negative manpower requirements raise error."""
+    with pytest.raises(ValidationError):
+        ConstraintsConfig(personnel_needed_per_shift={"AM": -1})
 
-    # Serialize
-    data = cfg.to_dict()
-    assert data["personnel"] == ["Alice", "Bob"]
-    # Check key remapping (FULL_24H -> 24H)
-    assert data["points"]["24H"] == 3.0
 
-    # Deserialize
-    new_cfg = AppConfig.from_dict(data)
-    assert new_cfg.personnel == ["Alice", "Bob"]
-    assert new_cfg.points.AM == 5.0
-    # Ensure remapped keys came back correctly
-    assert new_cfg.points.FULL_24H == 3.0
+def test_validation_negative_points():
+    """Test that negative points raise error."""
+    with pytest.raises(ValidationError):
+        PointsConfig(AM=-1.0)
+
+    with pytest.raises(ValidationError):
+        PointsConfig(weekend_multiplier=-0.5)
+
+
+def test_points_config_logic():
+    """Test the helper method get_by_type in PointsConfig."""
+    pc = PointsConfig(AM=1.5, PM=2.0, FULL_24H=5.0, SB=0.5)
+
+    assert pc.get_by_type("AM") == 1.5
+    assert pc.get_by_type("PM") == 2.0
+    assert pc.get_by_type("24H") == 5.0
+    assert pc.get_by_type("S/B") == 0.5
+
+    with pytest.raises(ValueError):
+        pc.get_by_type("UNKNOWN")

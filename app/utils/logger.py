@@ -1,47 +1,33 @@
 """
-logger.py
+app/utils/logger.py
 
-Handles the initialization of the application's logging infrastructure.
-Writes logs to both disk (app.log) and console.
+Provides a centralized logging configuration.
 """
 
 import logging
 import sys
 
-# UPDATED IMPORT
-from app import constants as C
 
-
-def setup_logger() -> None:
+def setup_logger(name: str = "app", level: int = logging.INFO) -> logging.Logger:
     """
-    Configures the root logger.
-    Sets up FileHandler and StreamHandler with formatting.
+    Configures and returns a logger instance.
+
+    Args:
+        name (str): Name of the logger.
+        level (int): Logging level (default: logging.INFO).
+
+    Returns:
+        logging.Logger: Configured logger.
     """
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.propagate = False  # Prevent propagation to avoid duplicates
 
-    # Clear existing handlers to prevent duplication on reload
-    if logger.hasHandlers():
-        logger.handlers.clear()
+    # Check if handlers already exist to avoid duplicates
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(module)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    # 1. File Handler
-    try:
-        file_handler = logging.FileHandler(C.LOG_FILE, encoding="utf-8")
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    except PermissionError:
-        print(f"WARNING: Could not write to {C.LOG_FILE}. Logging disabled.")
-    except Exception as e:
-        print(f"CRITICAL: Logger init failed: {e}")
-
-    # 2. Console Handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    logging.info("=== Application Started ===")
+    return logger

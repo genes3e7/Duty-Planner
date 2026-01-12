@@ -1,16 +1,16 @@
-# pyproject.toml
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+python_files = "test_*.py"
 
 [tool.ruff]
-# Target Python 3.10 (lowest in CI matrix) to ensure compatibility across 3.10 - 3.14
-target-version = "py310"
-line-length = 88
+# Update target to match project requirement
+target-version = "py312"
+line-length = 120
 
 [tool.ruff.lint]
-# E = Error, F = Pyflakes, I = Import Sorting
-select = ["E", "F", "I"]
-
-[tool.pytest.ini_options]
-# testpaths tells pytest where to look when run without arguments
-testpaths = ["tests"]
-# Ensure it looks for the correct file pattern
-python_files = ["test_*.py"]
+select = ["E", "F", "B", "I"]
+ignore = []

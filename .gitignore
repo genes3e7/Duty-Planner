@@ -75,17 +75,19 @@ dmypy.json
 ehthumbs.db
 Thumbs.db
 
-# --- PyInstaller ---
-*.spec
+# --- Streamlit ---
+.streamlit/secrets.toml
+# .streamlit/config.toml # Uncomment if you want to ignore local config
 
 # --- Application Specific ---
 # Runtime logs
 *.log
 app.log
 
-# Data exports
+# Data exports & Temps
 *.xlsx
 *.csv
+temp_import.xlsx
 
 # Temporary CI artifacts (if run locally)
 artifacts/
@@ -94,5 +96,6 @@ all_versions.txt
 sorted_versions.txt
 
 # User Configuration
+config.json.tmp
 # (Uncomment if you want to keep your local config private)
 # config.json

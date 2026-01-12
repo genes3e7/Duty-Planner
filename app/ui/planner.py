@@ -1,454 +1,255 @@
 """
-planner_tab.py
+app/ui/planner.py
 
-Encapsulates the UI and logic for the 'Planner' tab.
-Handles grid generation, user interaction (cell clicks), solver execution,
-and exporting.
+Handles the main planning interface:
+- Roster Grid (Editable)
+- Day Configuration
+- Solver Trigger
+- Statistics Display
 """
 
 import calendar
-import threading
-from tkinter import filedialog, messagebox
+import logging
 
-import customtkinter as ctk
-import holidays
 import pandas as pd
+import streamlit as st
 
-import app.ui.helpers as GH
-from app import constants as C
-from app.core.data import DataManager
-from app.core.scheduler import DutySchedulerEngine, SolverRequest
+from app import logic
 from app.models.config import AppConfig
-from app.ui.components import ShiftGridCell
+
+logger = logging.getLogger(__name__)
 
 
-class PlannerTab(ctk.CTkFrame):
-    """
-    The Planner Tab Frame Controller.
+def _initialize_session_state(config: AppConfig, sel_year: int, sel_month: int, sel_month_name: str) -> None:
+    """Initializes or updates the session state for the selected date."""
+    current_date_key = (sel_year, sel_month)
 
-    Attributes:
-        config (AppConfig): Shared app configuration containing personnel and rules.
-        prev_balance (Dict[str, float]): Points carried forward from imported files.
-        last_loaded (Tuple[int, int]): (month, year) for the currently displayed grid.
-        all_24h_active (bool): Toggle state for the global "Check All 24H" button.
-        cells (Dict): Map of (person_name, day) -> ShiftGridCell widget.
-        day_mode_vars (Dict): Map of day_index -> StringVar ("Shift"/"24H").
-        day_active_vars (Dict): Map of day_index -> BooleanVar (Active/Inactive).
-        stat_labels (Dict): Map of person_name -> Dict of UI Labels (BF, MP, CO).
-    """
+    if "loaded_date" not in st.session_state:
+        st.session_state.loaded_date = None
 
-    def __init__(self, parent, config: AppConfig, on_update_callback=None):
-        """
-        Initializes the Planner Tab.
+    data_needs_init = st.session_state.get("roster_df") is None
+    date_changed = st.session_state.loaded_date != current_date_key
 
-        Args:
-            parent: The parent UI widget (usually the TabView).
-            config: The shared AppConfig data object.
-            on_update_callback: Optional function to call when data changes.
-        """
-        super().__init__(parent)
-        self.config = config
-        self.on_update = on_update_callback
+    if data_needs_init or date_changed:
+        if date_changed and st.session_state.loaded_date is not None:
+            st.toast(f"Switched to {sel_month_name} {sel_year}", icon="📅")
 
-        # State Tracking
-        self.prev_balance = {}
-        self.last_loaded = None
-        self.all_24h_active = False
+        r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, config.personnel)
 
-        # UI Component Storage
-        self.cells = {}
-        self.day_mode_vars = {}
-        self.day_active_vars = {}
-        self.stat_labels = {}
+        st.session_state.roster_df = r_df
+        st.session_state.day_config_df = d_df
+        st.session_state.loaded_date = current_date_key
+        st.session_state.roster_version = 0
 
-        self._build_ui()
+    if "prev_balance" not in st.session_state:
+        st.session_state.prev_balance = {}
 
-    def _build_ui(self):
-        """
-        Constructs the main layout: Top Toolbar, Scrollable Grid, and Bottom Toolbar.
-        Includes updated button labels and positions.
-        """
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+    # Update Index Name to show Month/Year in top-left
+    if st.session_state.roster_df is not None:
+        st.session_state.roster_df.index.name = f"{sel_month_name} {sel_year}"
 
-        # --- 1. Top Control Bar ---
-        top = ctk.CTkFrame(self, fg_color="transparent")
-        top.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
-        # Date Selection (Month Dropdown)
-        self.cmb_month = ctk.CTkComboBox(
-            top, values=list(calendar.month_name)[1:], width=110
-        )
-        self.cmb_month.set(list(calendar.month_name)[self.config.month])
-        self.cmb_month.pack(side="left", padx=5)
+def _render_toolbar(config: AppConfig, sel_year: int, sel_month: int) -> None:
+    """Renders the action buttons (Reset, Clear, Solver)."""
+    col_act1, col_act2, col_act3 = st.columns([1, 1, 2])
 
-        # Date Selection (Year Entry)
-        self.ent_year = ctk.CTkEntry(top, width=60)
-        self.ent_year.insert(0, str(self.config.year))
-        self.ent_year.pack(side="left", padx=5)
+    with col_act1:
+        if st.button("🔄 Reset Grid", help="Clear all data for this month"):
+            r_df, d_df = logic.generate_empty_schedule(sel_year, sel_month, config.personnel)
+            st.session_state.roster_df = r_df
+            st.session_state.day_config_df = d_df
+            st.session_state.roster_version += 1
+            st.rerun()
 
-        # Primary Action: Load Grid
-        GH.create_button(top, "Load Grid", self.refresh_grid, "left")
+    with col_act2:
+        if st.button("🧹 Clear Duties", help="Keep 'X', clear others"):
+            st.session_state.roster_df = logic.clear_schedule(st.session_state.roster_df, clear_constraints=False)
+            st.session_state.roster_version += 1
+            st.rerun()
 
-        # Toggle: Global 24H Mode
-        self.btn_24 = GH.create_button(
-            top, "Check All 24H", self.toggle_all_24h, "left", 120, "#7B1FA2"
-        )
-
-        # Right Side Actions (Reset, Clear, Import)
-        GH.create_button(top, "Reset Table", self.reset_all, "right", 100, "#D32F2F")
-        GH.create_button(
-            top, "Clear Duties", self.clear_duties, "right", 110, "#EF5350"
-        )
-        GH.create_button(
-            top, "Import Previous Month", self.import_balances, "right", 160
-        )
-
-        # --- 2. Main Grid Area ---
-        cont = ctk.CTkFrame(self, fg_color="transparent")
-        cont.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-
-        self.scroll = ctk.CTkScrollableFrame(cont, orientation="horizontal")
-        self.scroll.pack(fill="both", expand=True)
-
-        # --- 3. Bottom Status Bar ---
-        bot = ctk.CTkFrame(self, height=50, fg_color="transparent")
-        bot.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
-
-        self.lbl_stat = ctk.CTkLabel(bot, text="Ready.", text_color="#555555")
-        self.lbl_stat.pack(side="left", padx=10)
-
-        # Action Buttons (Export, Generate)
-        self.btn_exp = GH.create_button(
-            bot, "Export xlsx", self.save_excel, "right", 120, "#2E7D32"
-        )
-        self.btn_exp.configure(state="disabled")  # Disabled until grid loaded
-
-        self.btn_run = GH.create_button(
-            bot, "GENERATE FILL", self.run_solver, "right", 140, "#1565C0"
-        )
-
-    def refresh_grid(self):
-        """
-        Rebuilds the visual grid based on the selected Month and Year.
-        Calculates weekends, holidays, and renders rows for all personnel.
-        """
-        try:
-            # Parse Date
-            y = int(self.ent_year.get())
-            m = list(calendar.month_name).index(self.cmb_month.get())
-            if m == 0:
-                m = 1
-
-            # Optimization: Skip reload if nothing changed
-            if self.last_loaded == (m, y):
-                return
-
-            days = pd.Period(f"{y}-{m}").days_in_month
-            self.sg_holidays = holidays.SG(years=y)
-
-            # Clean up old widgets
-            for w in self.scroll.winfo_children():
-                w.destroy()
-            self.cells.clear()
-            self.day_mode_vars.clear()
-            self.day_active_vars.clear()
-            self.stat_labels.clear()
-
-            # 1. Build Header Rows
-            headers = ["Date", "Day", "Duty?", "24H?", "NAME"]
-            for i, t in enumerate(headers):
-                GH.create_grid_header(
-                    self.scroll, t, i, 0, width=(80 if i == 4 else 50)
+    with col_act3:
+        # st.button still uses use_container_width (boolean) in most versions
+        if st.button("🚀 Auto-Fill Schedule", type="primary", use_container_width=True):
+            with st.spinner("Solving..."):
+                res = logic.run_solver(
+                    sel_year,
+                    sel_month,
+                    st.session_state.roster_df,
+                    st.session_state.day_config_df,
+                    config,
+                    st.session_state.prev_balance,
                 )
+                if res:
+                    sched, _ = res
+                    for (p, d), s in sched.items():
+                        col_name = f"D{d}"
+                        if p in st.session_state.roster_df.index and col_name in st.session_state.roster_df.columns:
+                            st.session_state.roster_df.at[p, col_name] = s
+                    st.success("Optimization Complete!")
+                    st.session_state.roster_version += 1
+                    st.rerun()
+                else:
+                    st.error("No solution found. Check constraints.")
 
-            # 2. Build Day Columns (1..31)
-            for d in range(1, days + 1):
-                dt = pd.Timestamp(year=y, month=m, day=d)
-                is_ph = dt in self.sg_holidays
-                is_wknd = dt.dayofweek >= 5
 
-                # Visual Cues: Red for PH, Grey for Weekend
-                bg = (
-                    C.COLOR_PH_BG
-                    if is_ph
-                    else (C.COLOR_HEADER_BG if is_wknd else "transparent")
-                )
+def _render_day_config() -> None:
+    """Renders the expandable Day Settings configuration."""
+    with st.expander("⚙️ Day Settings & Constraints", expanded=False):
+        st.caption("Configure which days are Holidays (24H) or active.")
 
-                GH.create_grid_header(self.scroll, str(d), 0, d, bg)
-                GH.create_grid_header(self.scroll, dt.strftime("%a"), 1, d, bg)
+        # Bulk Action Buttons
+        b_col1, b_col2 = st.columns(2)
+        with b_col1:
+            if st.button("Set All to Shift (AM/PM)", use_container_width=True):
+                st.session_state.day_config_df["Mode"] = "SHIFT"
+                st.rerun()
+        with b_col2:
+            if st.button("Set All to 24H", use_container_width=True):
+                st.session_state.day_config_df["Mode"] = "24H"
+                st.rerun()
 
-                # Row 2: Active Toggle ("Duty?")
-                avar = ctk.BooleanVar(value=True)
-                self.day_active_vars[d] = avar
-                ctk.CTkCheckBox(
-                    self.scroll,
-                    text="",
-                    variable=avar,
-                    width=20,
-                    command=lambda x=d: self.toggle_active(x),
-                ).grid(row=2, column=d)
+        edited_day_config = st.data_editor(
+            st.session_state.day_config_df,
+            column_config={
+                "Active": st.column_config.CheckboxColumn("Active?", width="small"),
+                "Mode": st.column_config.SelectboxColumn(
+                    "Mode", options=["SHIFT", "24H"], width="medium", required=True
+                ),
+                "Is_PH": st.column_config.CheckboxColumn("PH", width="small"),
+            },
+            # Hiding "Is_Weekend" by strictly defining column_order
+            column_order=["Active", "Mode", "Is_PH"],
+            # Fixed: removed "Day" (index) from disabled list, as it's not a column
+            disabled=["Date"],
+            width="stretch",
+            key="day_config_editor",
+        )
+        if not edited_day_config.equals(st.session_state.day_config_df):
+            st.session_state.day_config_df = edited_day_config
+            st.rerun()
 
-                # Row 3: 24H Toggle
-                # Logic: Default to 24H only if it's a Public Holiday.
-                # Weekends default to Shift.
-                default_mode = (
-                    C.ScheduleMode.FULL_24H.value
-                    if is_ph
-                    else C.ScheduleMode.SHIFT.value
-                )
-                mvar = ctk.StringVar(value=default_mode)
-                self.day_mode_vars[d] = mvar
-                ctk.CTkCheckBox(
-                    self.scroll,
-                    text="",
-                    variable=mvar,
-                    onvalue=C.ScheduleMode.FULL_24H.value,
-                    offvalue=C.ScheduleMode.SHIFT.value,
-                    width=20,
-                ).grid(row=3, column=d)
 
-            # 3. Build Stats Headers (Brought Fwd, etc)
-            sc = days + 1  # Start column for stats
-            for i, txt in enumerate(C.EXCEL_HEADERS_SUFFIX):
-                GH.create_grid_header(self.scroll, txt, 4, sc + i + 1, width=80)
+def _render_roster_grid(sel_year: int, sel_month: int) -> None:
+    """Renders the main editable roster grid."""
+    st.subheader("Assignments")
 
-            # 4. Build Personnel Rows
-            for idx, p in enumerate(sorted(self.config.personnel)):
-                r = idx + 5
-                ctk.CTkLabel(self.scroll, text=p).grid(
-                    row=r, column=0, sticky="w", padx=5
-                )
+    column_config = {}
+    for col_name in st.session_state.roster_df.columns:
+        day_num = logic.get_day_num(col_name)
+        if day_num > 0 and day_num in st.session_state.day_config_df.index:
+            row_config = st.session_state.day_config_df.loc[day_num]
+            mode = row_config["Mode"]
+            is_active = row_config["Active"]
+            is_ph = row_config["Is_PH"]
 
-                # Create Cells
-                for d in range(1, days + 1):
-                    c = ShiftGridCell(self.scroll, p, d, self.on_click)
-                    c.grid(row=r, column=d, padx=1, pady=1, sticky="nsew")
-                    self.cells[(p, d)] = c
+            # Construct Header Label: e.g. "1 Mon" or "1 Mon 🏖️"
+            try:
+                date_obj = pd.Timestamp(year=sel_year, month=sel_month, day=day_num)
+                day_str = date_obj.strftime("%a")  # Mon, Tue
+                label = f"{day_num} {day_str}"
+            except (ValueError, OverflowError):  # Specific exceptions
+                label = str(day_num)
 
-                # Create Stats Labels
-                self.stat_labels[p] = {
-                    "BF": ctk.CTkLabel(self.scroll, text="0.0"),
-                    "MP": ctk.CTkLabel(self.scroll, text="0.0"),
-                    "CO": ctk.CTkLabel(self.scroll, text="0.0"),
-                }
-                for i, k in enumerate(["BF", "MP", "CO"]):
-                    self.stat_labels[p][k].grid(row=r, column=sc + i + 1)
+            # Visual Indicators in Header
+            if is_ph:
+                label += " 🏖️"
 
-            # Finalize
-            self.recalculate()
-            self.last_loaded = (m, y)
-            self.current_days = days
-            # UPDATED: Now includes Year
-            self.lbl_stat.configure(text=f"Loaded {self.cmb_month.get()} {y}")
-            self.btn_exp.configure(state="normal")
+            if not is_active:
+                label += " 🚫"
 
-        except Exception as e:
-            messagebox.showerror("Grid Error", str(e))
+            # Options available
+            opts = ["", "X", "24H", "S/B"] if mode == "24H" else ["", "X", "AM", "PM", "S/B"]
 
-    def on_click(self, cell):
-        """
-        Handles clicks on a grid cell. Cycles the value (AM->PM->X)
-        based on the column's mode (Shift vs 24H).
-
-        Args:
-            cell (ShiftGridCell): The cell object that was clicked.
-        """
-        mode = self.day_mode_vars[cell.day].get()
-        cycle = ["", "X", "24H"] if mode == "24H" else ["", "X", "AM", "PM"]
-        try:
-            next_val = cycle[(cycle.index(cell.current_val) + 1) % len(cycle)]
-        except Exception:
-            next_val = ""
-        cell.set_val(next_val)
-        self.recalculate()
-
-    def toggle_active(self, d):
-        """
-        Enables/Disables an entire day column.
-        Disabled columns are excluded from logic and points.
-
-        Args:
-            d (int): The day index (1-31).
-        """
-        active = self.day_active_vars[d].get()
-        for p in self.config.personnel:
-            if (p, d) in self.cells:
-                self.cells[(p, d)].set_disabled(not active)
-        self.recalculate()
-
-    def toggle_all_24h(self):
-        """Bulk toggles all 24H checkboxes in the header row."""
-        self.all_24h_active = not self.all_24h_active
-        if self.all_24h_active:
-            v = C.ScheduleMode.FULL_24H.value
-        else:
-            v = C.ScheduleMode.SHIFT.value
-
-        for var in self.day_mode_vars.values():
-            var.set(v)
-
-    def recalculate(self):
-        """
-        Recalculates points for all personnel.
-        Sums daily points * multipliers + brought forward balance.
-        """
-        try:
-            y = int(self.ent_year.get())
-            m = list(calendar.month_name).index(self.cmb_month.get())
-
-            for p in self.config.personnel:
-                bf = self.prev_balance.get(p, 0.0)
-                cur = 0.0
-                for d in range(1, self.current_days + 1):
-                    # Skip disabled days
-                    if not self.day_active_vars[d].get():
-                        continue
-
-                    if (p, d) in self.cells:
-                        val = self.cells[(p, d)].current_val
-                        if val in C.ACTIVE_DUTIES:
-                            dt = pd.Timestamp(year=y, month=m, day=d)
-
-                            # Multiplier Logic
-                            mult = 1.0
-                            if dt in self.sg_holidays:
-                                mult = self.config.points.ph_multiplier
-                            elif dt.dayofweek >= 5:
-                                mult = self.config.points.weekend_multiplier
-
-                            cur += self.config.points.get_by_type(val) * mult
-
-                # Update Labels
-                if p in self.stat_labels:
-                    self.stat_labels[p]["BF"].configure(text=f"{bf:.1f}")
-                    self.stat_labels[p]["MP"].configure(text=f"{cur:.1f}")
-                    self.stat_labels[p]["CO"].configure(text=f"{bf + cur:.1f}")
-        except Exception:
-            pass
-
-    def run_solver(self):
-        """Gathers grid state and launches the Solver thread."""
-        self.btn_run.configure(state="disabled")
-        self.lbl_stat.configure(text="Solving...")
-
-        # 1. Collect Manual Constraints
-        fixed = {k: v.current_val for k, v in self.cells.items() if v.current_val}
-        modes = {d: v.get() for d, v in self.day_mode_vars.items()}
-        inactive = [d for d, v in self.day_active_vars.items() if not v.get()]
-
-        y = int(self.ent_year.get())
-        m = list(calendar.month_name).index(self.cmb_month.get())
-
-        # 2. Package into DTO
-        req = SolverRequest(self.config.personnel, y, m, fixed, modes, inactive)
-
-        # 3. Start Thread
-        threading.Thread(target=self._worker, args=(req,), daemon=True).start()
-
-    def _worker(self, req):
-        """Background thread logic for the engine."""
-        try:
-            eng = DutySchedulerEngine(self.config, self.prev_balance, req)
-            eng.build_model()
-            res = eng.solve()
-            self.after(0, self._success, res)
-        except Exception as e:
-            # Fix: Assign to variable first to resolve scope/linting ambiguity
-            err_msg = str(e)
-            self.after(0, lambda: messagebox.showerror("Solver Error", err_msg))
-
-    def _success(self, res):
-        """Callback on solver success."""
-        self.btn_run.configure(state="normal")
-        if res:
-            sched, _ = res
-            # Fill Grid
-            for (p, d), v in sched.items():
-                if (p, d) in self.cells:
-                    self.cells[(p, d)].set_val(v)
-            self.recalculate()
-            self.lbl_stat.configure(text="Done")
-        else:
-            self.lbl_stat.configure(text="Failed")
-            messagebox.showwarning(
-                "Solver", "No solution found. Check your constraints."
+            column_config[col_name] = st.column_config.SelectboxColumn(
+                label=label,
+                options=opts,
+                width=90,  # Custom pixel width: tight fit for Emoji
+                required=False,
+                disabled=not is_active,  # Disable the column if day is inactive
             )
 
-    def save_excel(self):
-        """Exports the current grid to .xlsx."""
-        sched = {k: v.current_val for k, v in self.cells.items() if v.current_val}
-        summ = []
-        for p in self.config.personnel:
-            if p in self.stat_labels:
-                summ.append(
-                    {
-                        "Name": p,
-                        "Brought Fwd": float(self.stat_labels[p]["BF"].cget("text")),
-                        "Month Pts": float(self.stat_labels[p]["MP"].cget("text")),
-                        "Carry Over": float(self.stat_labels[p]["CO"].cget("text")),
-                    }
-                )
+    edited_roster = st.data_editor(
+        st.session_state.roster_df,
+        column_config=column_config,
+        width="stretch",
+        height=500,
+        key=f"roster_editor_{st.session_state.roster_version}",
+    )
 
-        fp = filedialog.asksaveasfilename(
-            defaultextension=".xlsx", filetypes=[("Excel Files", "*.xlsx")]
-        )
-        if fp:
-            DataManager.export_schedule(sched, summ, self.config, fp)
-            messagebox.showinfo("Export", "File saved successfully.")
+    if not edited_roster.equals(st.session_state.roster_df):
+        st.session_state.roster_df = edited_roster
+        st.rerun()
 
-    def reset_all(self):
-        """Clears ALL cells in the grid."""
-        if messagebox.askyesno("Confirm", "Reset entire table? All data will be lost."):
-            for c in self.cells.values():
-                c.set_val("")
-            self.recalculate()
 
-    def clear_duties(self):
-        """Clears only duties (AM/PM/24H/SB) but preserves Leaves (X)."""
-        if messagebox.askyesno(
-            "Confirm", "Clear assigned duties? (Leaves will remain)"
-        ):
-            for c in self.cells.values():
-                if c.current_val in C.ACTIVE_DUTIES:
-                    c.set_val("")
-            self.recalculate()
+def _render_statistics(config: AppConfig, sel_year: int, sel_month: int) -> None:
+    """Calculates and renders statistics and export options."""
+    st.divider()
+    st.subheader("Statistics")
 
-    def import_balances(self):
-        """
-        Imports 'Carry Over' balances from a previous month's Excel file.
+    stats_df = logic.calculate_stats(
+        st.session_state.roster_df, st.session_state.day_config_df, config, st.session_state.prev_balance
+    )
 
-        Feature:
-        - Overwrites the current personnel list in settings with names from file.
-        - Updates config.json immediately.
-        """
-        fp = filedialog.askopenfilename(filetypes=[("Excel Files", "*.xlsx")])
-        if fp:
-            self.prev_balance = DataManager.load_previous_balance(fp)
-            imported_names = sorted(list(self.prev_balance.keys()))
+    if stats_df.empty or "Month Pts" not in stats_df.columns:
+        total_month = 0.0
+        avg_month = 0.0
+        std_total = 0.0
+    else:
+        total_month = stats_df["Month Pts"].sum()
+        avg_month = stats_df["Month Pts"].mean()
 
-            if not imported_names:
-                messagebox.showwarning("Import", "No names found.")
-                return
+        # Fairness Metric: Standard Deviation should be based on CUMULATIVE points (Carry Over)
+        # to ensure long-term balance, not just monthly balance.
+        if "Carry Over" in stats_df.columns:
+            std_total = stats_df["Carry Over"].std()
+        else:
+            std_total = 0.0
 
-            msg = (
-                f"Found {len(imported_names)} names in file.\n\n"
-                "This will OVERWRITE the current personnel list.\n"
-                "Proceed?"
-            )
+        if pd.isna(std_total):
+            std_total = 0.0
 
-            if messagebox.askyesno("Overwrite?", msg):
-                # 1. Update Config
-                self.config.personnel = imported_names
-                DataManager.save_config(self.config)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Month Pts", f"{total_month:.1f}")
+    c2.metric("Avg Pts", f"{avg_month:.2f}")
+    c3.metric("Std Dev (Total)", f"{std_total:.2f}", help="Standard Deviation of cumulative Carry Over points.")
 
-                # 2. Force Grid Refresh (Critical: clear last_loaded cache)
-                self.last_loaded = None
-                self.refresh_grid()
+    st.dataframe(stats_df, width="stretch", hide_index=True)
 
-                # 3. Notify App to sync Settings Tab
-                if self.on_update:
-                    self.on_update()
+    xlsx_data = logic.export_to_excel_bytes(st.session_state.roster_df, stats_df, config)
+    st.download_button(
+        "📥 Download Roster (.xlsx)",
+        data=xlsx_data,
+        file_name=f"Roster_{sel_year}_{sel_month}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
 
-            self.recalculate()
-            messagebox.showinfo("Success", f"Imported {len(imported_names)} records.")
+
+def render_planner(config: AppConfig) -> None:
+    """
+    Renders the main planning grid and actions.
+
+    Args:
+        config (AppConfig): The application configuration containing
+                            current year, month, and personnel.
+    """
+    sel_year = config.year
+    sel_month = config.month
+    sel_month_name = calendar.month_name[sel_month]
+
+    st.title(f"🗓️ Roster: {sel_month_name} {sel_year}")
+
+    # 1. Initialize Session
+    _initialize_session_state(config, sel_year, sel_month, sel_month_name)
+
+    # 2. Render Toolbar
+    _render_toolbar(config, sel_year, sel_month)
+
+    # 3. Render Day Config
+    _render_day_config()
+
+    # 4. Render Roster Grid
+    _render_roster_grid(sel_year, sel_month)
+
+    # 5. Render Statistics
+    _render_statistics(config, sel_year, sel_month)
