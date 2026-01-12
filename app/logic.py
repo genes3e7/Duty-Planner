@@ -204,7 +204,7 @@ def run_solver(
     df_days: pd.DataFrame,
     config: AppConfig,
     prev_balance: Dict[str, float],
-) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
+) -> Optional[Tuple[Dict[Tuple[str, int], str], int]]:
     """Orchestrates the solving process."""
     try:
         req = prepare_solver_request(year, month, df_roster, df_days, config)

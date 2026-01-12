@@ -30,13 +30,12 @@ def main():
         # 1. Identify Supported Versions
         supported_versions = []
         if os.path.exists(artifacts_dir):
-            # Walk through artifacts directory to find success markers
-            for _root, _dirs, files in os.walk(artifacts_dir):
-                for file in files:
-                    if file.startswith("python_version_") and file.endswith(".txt"):
-                        # Extract version number from filename: python_version_3.12.txt -> 3.12
-                        version = file.replace("python_version_", "").replace(".txt", "")
-                        supported_versions.append(version)
+            # List artifacts directory to find success markers
+            for file in os.listdir(artifacts_dir):
+                if file.startswith("python_version_") and file.endswith(".txt"):
+                    # Extract version number from filename: python_version_3.12.txt -> 3.12
+                    version = file.replace("python_version_", "").replace(".txt", "")
+                    supported_versions.append(version)
 
         # Dedup
         unique_versions = list(set(supported_versions))
