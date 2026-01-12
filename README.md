@@ -5,6 +5,7 @@ A Streamlit-based application for scheduling staff duties. This tool provides an
 <!-- BADGES_START -->
 [![Supported Python](https://img.shields.io/badge/python-3.12_to_3.14-blue)](https://www.python.org/downloads/)
 <!-- BADGES_END -->
+
 ## Features
 
 * **Interactive Planner:** Visual grid to manually assign or view duties.
