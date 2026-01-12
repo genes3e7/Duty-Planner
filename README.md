@@ -16,6 +16,7 @@ A Streamlit-based application for scheduling staff duties. This tool provides an
   * Define point values for different shifts.
   * Apply multipliers for weekends and public holidays.
 * **Excel Export:** Download the final roster and statistics as an Excel file.
+* **Secure Client-Side Storage:** Configurations are saved to your local machine as JSON, ensuring no personal data is stored on the server.
 
 ## Architecture
 
@@ -31,13 +32,14 @@ sequenceDiagram
     participant DataMgr as DataManager
 
     User->>Browser: open app / choose Planner or Settings
-    Browser->>Sidebar: load/save config, upload .xlsx (balances/constraints)
+    Browser->>Sidebar: Load Default Template (config.json)
+    Browser->>Sidebar: Upload/Download Config JSON (Client Side)
     Browser->>Logic: generate_empty_schedule(year, month, personnel)
     Browser->>Logic: prepare_solver_request(year, month, roster, days, config)
     Logic->>Solver: build_model(SolverRequest)
     Logic->>Solver: solve()
     Solver-->>Logic: solution or failure
-    Logic->>DataMgr: save_config / load_previous_balance / load_constraints
+    Logic->>DataMgr: load_previous_balance / load_constraints
     Logic-->>Browser: roster_df, stats, excel_bytes (for download)
     Browser-->>User: display roster, stats, download link
 ```
@@ -68,8 +70,13 @@ sequenceDiagram
 
 ## Configuration
 
-The application settings are stored in `config.json` (created on first save). You can modify these via the **Settings** page in the UI or by editing the JSON file directly.
+The application loads a **default template** from `config.json` on startup. 
+To save your specific personnel and rules:
+1.  Go to the **sidebar**.
+2.  Click **Download Config JSON**.
+3.  Next time you use the app, upload this file to restore your settings.
 
+**Key Settings:**
 * **Personnel:** List of names.
 * **Constraints:**
   * `personnel_needed_per_shift`: Dictionary defining needs (e.g., `{"AM": 1, "PM": 1}`).

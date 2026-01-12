@@ -2,7 +2,7 @@
 app/core/data.py
 
 Handles persistent data storage and retrieval.
-Responsible for loading/saving JSON configurations and importing Excel history.
+Responsible for loading JSON configurations and importing Excel history.
 """
 
 import json
@@ -52,42 +52,7 @@ class DataManager:
             logger.error(f"Unexpected error loading config: {e}. Using defaults.")
             return AppConfig.default()
 
-    @staticmethod
-    def save_config(config: AppConfig, filepath: str = C.CONFIG_FILE) -> bool:
-        """
-        Saves the current configuration to a JSON file.
-
-        Uses a write-then-replace strategy (atomic write) to prevent data corruption
-        if the process crashes during write.
-
-        Args:
-            config (AppConfig): The configuration object to save.
-            filepath (str): Target file path.
-
-        Returns:
-            bool: True if save was successful, False otherwise.
-        """
-        tmp_path = f"{filepath}.tmp"
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(config.to_dict(), f, indent=4)
-                f.flush()
-                os.fsync(f.fileno())
-
-            # Atomic replacement
-            os.replace(tmp_path, filepath)
-
-            logger.info("Configuration saved successfully.")
-            return True
-        except Exception as e:
-            logger.error(f"Config save error: {e}")
-            # Clean up temp file if it exists
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
-            return False
+    # REMOVED: save_config method to prevent server-side data leaks.
 
     @staticmethod
     def load_previous_balance(excel_file: Union[str, Any]) -> Dict[str, float]:

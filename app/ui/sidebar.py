@@ -24,7 +24,6 @@ def render_sidebar() -> str:
     st.sidebar.title("Duty Planner")
 
     # 1. Navigation
-    # Added key for testing stability
     page = st.sidebar.radio("Navigation", ["Planner", "Settings"], key="navigation_radio")
 
     st.sidebar.divider()
@@ -32,14 +31,13 @@ def render_sidebar() -> str:
     # 2. Configuration Loading
     st.sidebar.subheader("Configuration")
 
-    # Check for existing config in session, else load
+    # Check for existing config in session, else load template from server
     if "app_config" not in st.session_state:
         st.session_state.app_config = DataManager.load_config()
 
     config: AppConfig = st.session_state.app_config
 
     # Date Selection
-    # Safely handle default date construction
     try:
         default_date = datetime.date(config.year, config.month, 1)
     except ValueError:
@@ -57,16 +55,44 @@ def render_sidebar() -> str:
         # Invalidate planner cache if date changes
         st.session_state.loaded_date = None
 
-    # Actions
-    if st.sidebar.button("💾 Save Configuration"):
-        if DataManager.save_config(config):
-            st.toast("Configuration saved!", icon="✅")
-        else:
-            st.error("Failed to save configuration.")
+    st.sidebar.divider()
+
+    # --- Persistence: Client-Side Only ---
+    st.sidebar.caption("💾 Save/Load Session")
+
+    # A. Download (Save)
+    st.sidebar.download_button(
+        label="Download Config JSON",
+        data=config.model_dump_json(indent=4),
+        file_name=f"roster_config_{config.year}_{config.month}.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+
+    # B. Upload (Load)
+    uploaded_config = st.sidebar.file_uploader("Upload Config JSON", type=["json"], key="u_cfg")
+    if uploaded_config is not None:
+        try:
+            # Parse JSON and validate via Pydantic
+            content = uploaded_config.read()
+            new_config = AppConfig.model_validate_json(content)
+
+            # Update session state
+            st.session_state.app_config = new_config
+
+            # Force reload of derived data if years/months changed or personnel changed
+            st.session_state.loaded_date = None
+
+            st.toast("Configuration loaded successfully!", icon="✅")
+            # Rerun to refresh the UI with new settings immediately
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Invalid configuration file: {e}")
 
     st.sidebar.divider()
 
-    # 3. Import Features
+    # 3. Import Features (Data)
     st.sidebar.subheader("Import Data")
 
     # --- A. Carry Forward & Init ---

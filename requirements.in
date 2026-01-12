@@ -1,6 +1,7 @@
+# Core Dependencies
 holidays
 openpyxl
 ortools
 pandas
-streamlit==1.52.2
-pydantic==2.12.3
+pydantic
+streamlit
