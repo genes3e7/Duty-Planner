@@ -39,12 +39,12 @@ def get_holidays(year: int) -> holidays.HolidayBase:
 
 def generate_empty_schedule(year: int, month: int, personnel: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Creates the initial empty DataFrames for the Roster and Day Configuration."""
-    # Fail fast if the Year/Month is invalid (e.g. Month 13)
     try:
         period = pd.Period(f"{year}-{month}")
         num_days = period.days_in_month
-    except ValueError as e:
-        raise ValueError(f"Invalid year/month: {year}/{month}") from e
+    except ValueError:
+        logger.warning(f"Invalid year/month ({year}/{month}), defaulting to 30 days")
+        num_days = 30
 
     sg_holidays = get_holidays(year)
     day_data = []
@@ -244,7 +244,11 @@ def calculate_stats(
                 if val in C.ACTIVE_DUTIES:
                     try:
                         current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(
+                            f"Skipping invalid date for {person} on day {day_idx}: "
+                            f"year={config.year}, month={config.month}. Error: {e}"
+                        )
                         continue
 
                     scaled_pts = config.points.calculate_score(

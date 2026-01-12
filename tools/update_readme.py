@@ -75,9 +75,8 @@ def main():
             content = f.read()
 
         # Regex to find and replace the existing badge section
-        # Captures the start marker, content in between, and end marker
-        # Matches ... with optional whitespace
-        pattern = r"()(.*?)()"
+        # Captures start marker, content, and end marker
+        pattern = r"(<!-- BADGES_START -->)(.*?)(<!-- BADGES_END -->)"
 
         match = re.search(pattern, content, re.DOTALL)
         if match:
