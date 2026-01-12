@@ -40,6 +40,9 @@ class ConstraintsConfig(BaseModel):
     max_consecutive_duties: int = Field(3, ge=1)
     """Maximum number of consecutive days a person can work before a break."""
 
+    solver_timeout_seconds: float = Field(90.0, ge=1.0)
+    """Maximum time (in seconds) the solver is allowed to run."""
+
     @field_validator("personnel_needed_per_shift")
     @classmethod
     def validate_needs(cls, v: Dict[str, int]) -> Dict[str, int]:

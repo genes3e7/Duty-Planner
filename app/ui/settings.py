@@ -23,6 +23,8 @@ def _ensure_pending_state() -> None:
         st.session_state.pending_max_consecutive_update = None
     if "pending_country_code_update" not in st.session_state:
         st.session_state.pending_country_code_update = None
+    if "pending_timeout_update" not in st.session_state:
+        st.session_state.pending_timeout_update = None
 
 
 def _update_number_field(field_name: str, label: str, current_value: float) -> None:
@@ -132,20 +134,38 @@ def render_settings(config: AppConfig) -> None:
         if val_sb != config.constraints.standby_per_day:
             st.session_state.pending_standby_update = val_sb
 
-    # Max Consecutive Duties
+    # Max Consecutive Duties & Timeout
     st.caption("Global limits applied to all staff.")
-    val_max = int(
-        st.number_input(
-            "Max Consecutive Duties",
-            min_value=1,
-            value=config.constraints.max_consecutive_duties,
-            step=1,
-            format="%d",
-            key="constraint_max_consecutive",
+
+    col_max, col_timeout = st.columns(2)
+
+    with col_max:
+        val_max = int(
+            st.number_input(
+                "Max Consecutive Duties",
+                min_value=1,
+                value=config.constraints.max_consecutive_duties,
+                step=1,
+                format="%d",
+                key="constraint_max_consecutive",
+            )
         )
-    )
-    if val_max != config.constraints.max_consecutive_duties:
-        st.session_state.pending_max_consecutive_update = val_max
+        if val_max != config.constraints.max_consecutive_duties:
+            st.session_state.pending_max_consecutive_update = val_max
+
+    with col_timeout:
+        val_timeout = float(
+            st.number_input(
+                "Solver Timeout (seconds)",
+                min_value=1.0,
+                value=float(config.constraints.solver_timeout_seconds),
+                step=5.0,
+                format="%.1f",
+                key="constraint_timeout",
+            )
+        )
+        if val_timeout != config.constraints.solver_timeout_seconds:
+            st.session_state.pending_timeout_update = val_timeout
 
     st.markdown("---")
 
@@ -257,6 +277,10 @@ def render_settings(config: AppConfig) -> None:
     if st.session_state.get("pending_max_consecutive_update") is not None:
         constraint_updates["max_consecutive_duties"] = st.session_state.pending_max_consecutive_update
         st.session_state.pending_max_consecutive_update = None
+
+    if st.session_state.get("pending_timeout_update") is not None:
+        constraint_updates["solver_timeout_seconds"] = st.session_state.pending_timeout_update
+        st.session_state.pending_timeout_update = None
 
     if constraint_updates:
         config.constraints = config.constraints.model_copy(update=constraint_updates)

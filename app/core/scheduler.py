@@ -274,11 +274,13 @@ class DutySchedulerEngine:
         self.model.AddMinEquality(min_pts, person_points)
         self.model.AddMaxEquality(max_pts, person_points)
 
-        # Calculate total penalty from soft bans
-        total_penalty = self.model.NewIntVar(0, 10000000, "total_penalty")
+        # Calculate total penalty from soft bans safely
         if self.soft_ban_penalties:
+            max_penalty = len(self.soft_ban_penalties) * SOFT_BAN_WEIGHT
+            total_penalty = self.model.NewIntVar(0, max_penalty, "total_penalty")
             self.model.Add(total_penalty == sum(self.soft_ban_penalties) * SOFT_BAN_WEIGHT)
         else:
+            total_penalty = self.model.NewIntVar(0, 0, "total_penalty")
             self.model.Add(total_penalty == 0)
 
         # Minimize Fairness Gap + Penalties
@@ -288,6 +290,7 @@ class DutySchedulerEngine:
     def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
         """Runs the solver and returns the schedule."""
         solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = self.config.constraints.solver_timeout_seconds
 
         status = solver.Solve(self.model)
 
