@@ -10,9 +10,11 @@ import streamlit as st
 from app.models.config import AppConfig
 
 
-def _ensure_pending_state():
+def _ensure_pending_state() -> None:
     if "pending_points_updates" not in st.session_state:
         st.session_state.pending_points_updates = {}
+    if "pending_constraints_updates" not in st.session_state:
+        st.session_state.pending_constraints_updates = {}
 
 
 def _update_number_field(field_name: str, label: str, current_value: float) -> None:
@@ -41,6 +43,9 @@ def render_settings(config: AppConfig) -> None:
     """
     st.title("⚙️ Settings")
 
+    # Ensure pending states are initialized at the start
+    _ensure_pending_state()
+
     # 1. Personnel Management
     st.subheader("Personnel")
     st.caption("Manage the list of staff available for duties.")
@@ -52,11 +57,12 @@ def render_settings(config: AppConfig) -> None:
     # De-duplicate names using dict keys to preserve order
     new_list = list(dict.fromkeys([n.strip() for n in new_names_str.split(",") if n.strip()]))
 
+    # Store personnel changes in session state instead of direct mutation
     if new_list != config.personnel:
         if not new_list:
             st.warning("Personnel list cannot be empty. At least one staff member is required.")
         else:
-            config.personnel = new_list
+            st.session_state.app_config.personnel = new_list
         # We don't rerun here to allow bulk edits, but data binds to the object reference
 
     st.markdown("---")
@@ -66,7 +72,6 @@ def render_settings(config: AppConfig) -> None:
 
     c1, c2, c3 = st.columns(3)
     shifts = [("AM", c1), ("PM", c2), ("24H", c3)]
-    updates = {}
 
     for shift_name, col in shifts:
         with col:
@@ -78,18 +83,12 @@ def render_settings(config: AppConfig) -> None:
                     value=config.constraints.personnel_needed_per_shift.get(shift_name, 1),
                     step=1,
                     format="%d",
+                    key=f"constraint_{shift_name}",
                 )
             )
             # Use same default as value retrieval to avoid comparing int to None
             if val != config.constraints.personnel_needed_per_shift.get(shift_name, 1):
-                updates[shift_name] = val
-
-    if updates:
-        # Reassign dict to trigger validation
-        config.constraints.personnel_needed_per_shift = {
-            **config.constraints.personnel_needed_per_shift,
-            **updates,
-        }
+                st.session_state.pending_constraints_updates[shift_name] = val
 
     st.markdown("---")
 
@@ -192,5 +191,13 @@ def render_settings(config: AppConfig) -> None:
     if "pending_points_updates" in st.session_state and st.session_state.pending_points_updates:
         config.points = config.points.model_copy(update=st.session_state.pending_points_updates)
         st.session_state.pending_points_updates = {}
+
+    if "pending_constraints_updates" in st.session_state and st.session_state.pending_constraints_updates:
+        new_constraints = {
+            **config.constraints.personnel_needed_per_shift,
+            **st.session_state.pending_constraints_updates,
+        }
+        config.constraints.personnel_needed_per_shift = new_constraints
+        st.session_state.pending_constraints_updates = {}
 
     st.info("Settings are applied in memory. Click 'Save Configuration' in the sidebar to persist to disk.")

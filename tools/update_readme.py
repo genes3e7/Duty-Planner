@@ -12,6 +12,7 @@ Usage:
 import os
 import re
 import sys
+import traceback
 
 
 def main():
@@ -103,6 +104,7 @@ def main():
 
     except Exception as e:
         print(f"Error updating README: {e}")
+        traceback.print_exc()
         sys.exit(1)
 
 

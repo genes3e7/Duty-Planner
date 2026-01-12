@@ -20,21 +20,8 @@ from app.models.config import AppConfig
 logger = logging.getLogger(__name__)
 
 
-def render_planner(config: AppConfig) -> None:
-    """
-    Renders the main planning grid and actions.
-
-    Args:
-        config (AppConfig): The application configuration containing
-                            current year, month, and personnel.
-    """
-    sel_year = config.year
-    sel_month = config.month
-    sel_month_name = calendar.month_name[sel_month]
-
-    st.title(f"🗓️ Roster: {sel_month_name} {sel_year}")
-
-    # Initialize Session State for Roster if needed
+def _initialize_session_state(config: AppConfig, sel_year: int, sel_month: int, sel_month_name: str) -> None:
+    """Initializes or updates the session state for the selected date."""
     current_date_key = (sel_year, sel_month)
 
     if "loaded_date" not in st.session_state:
@@ -61,7 +48,9 @@ def render_planner(config: AppConfig) -> None:
     if st.session_state.roster_df is not None:
         st.session_state.roster_df.index.name = f"{sel_month_name} {sel_year}"
 
-    # --- 1. Toolbar / Actions ---
+
+def _render_toolbar(config: AppConfig, sel_year: int, sel_month: int) -> None:
+    """Renders the action buttons (Reset, Clear, Solver)."""
     col_act1, col_act2, col_act3 = st.columns([1, 1, 2])
 
     with col_act1:
@@ -94,7 +83,7 @@ def render_planner(config: AppConfig) -> None:
                     sched, _ = res
                     for (p, d), s in sched.items():
                         col_name = f"D{d}"
-                        if col_name in st.session_state.roster_df.columns:
+                        if p in st.session_state.roster_df.index and col_name in st.session_state.roster_df.columns:
                             st.session_state.roster_df.at[p, col_name] = s
                     st.success("Optimization Complete!")
                     st.session_state.roster_version += 1
@@ -102,7 +91,9 @@ def render_planner(config: AppConfig) -> None:
                 else:
                     st.error("No solution found. Check constraints.")
 
-    # --- 2. Configuration Expander ---
+
+def _render_day_config() -> None:
+    """Renders the expandable Day Settings configuration."""
     with st.expander("⚙️ Day Settings & Constraints", expanded=False):
         st.caption("Configure which days are Holidays (24H) or active.")
 
@@ -137,7 +128,9 @@ def render_planner(config: AppConfig) -> None:
             st.session_state.day_config_df = edited_day_config
             st.rerun()
 
-    # --- 3. Main Roster Grid ---
+
+def _render_roster_grid(sel_year: int, sel_month: int) -> None:
+    """Renders the main editable roster grid."""
     st.subheader("Assignments")
 
     column_config = {}
@@ -187,7 +180,9 @@ def render_planner(config: AppConfig) -> None:
         st.session_state.roster_df = edited_roster
         st.rerun()
 
-    # --- 4. Statistics ---
+
+def _render_statistics(config: AppConfig, sel_year: int, sel_month: int) -> None:
+    """Calculates and renders statistics and export options."""
     st.divider()
     st.subheader("Statistics")
 
@@ -228,3 +223,33 @@ def render_planner(config: AppConfig) -> None:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
+
+
+def render_planner(config: AppConfig) -> None:
+    """
+    Renders the main planning grid and actions.
+
+    Args:
+        config (AppConfig): The application configuration containing
+                            current year, month, and personnel.
+    """
+    sel_year = config.year
+    sel_month = config.month
+    sel_month_name = calendar.month_name[sel_month]
+
+    st.title(f"🗓️ Roster: {sel_month_name} {sel_year}")
+
+    # 1. Initialize Session
+    _initialize_session_state(config, sel_year, sel_month, sel_month_name)
+
+    # 2. Render Toolbar
+    _render_toolbar(config, sel_year, sel_month)
+
+    # 3. Render Day Config
+    _render_day_config()
+
+    # 4. Render Roster Grid
+    _render_roster_grid(sel_year, sel_month)
+
+    # 5. Render Statistics
+    _render_statistics(config, sel_year, sel_month)
