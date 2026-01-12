@@ -23,91 +23,22 @@ The application follows a Model-View-Controller (MVC) pattern adapted for Stream
 ```mermaid
 sequenceDiagram
     actor User
-    participant Main as streamlit_app.py
-    participant Sidebar as app/ui/sidebar.py
-    participant Planner as app/ui/planner.py
-    participant Settings as app/ui/settings.py
-    participant Logic as app/logic.py
-    participant Data as app/core/data.py
-    participant Engine as app/core/scheduler.py
-    participant ORTools as CP-SAT Solver
+    participant Browser as Streamlit UI
+    participant Sidebar as Sidebar
+    participant Logic as Logic Layer
+    participant Solver as DutySchedulerEngine
+    participant DataMgr as DataManager
 
-    User->>Main: Opens Application
-    Main->>Sidebar: render_sidebar()
-    activate Sidebar
-    Sidebar->>Data: load_config()
-    Data-->>Sidebar: AppConfig
-    
-    Note over Sidebar: User interacts with Import Features
-    
-    opt Import Previous Balance
-        User->>Sidebar: Uploads .xlsx & Clicks "Confirm"
-        Sidebar->>Data: load_previous_balance(file)
-        Data-->>Sidebar: Balance Dict
-    end
-
-    opt Import Constraints
-        User->>Sidebar: Uploads .xlsx & Clicks "Import Requests"
-        Sidebar->>Data: load_constraints(file)
-        Data-->>Sidebar: Constraints Dict
-        Sidebar->>Logic: apply_imported_constraints(df, constraints)
-        Logic-->>Sidebar: Updated DataFrame
-    end
-
-    Sidebar-->>Main: Navigation Selection (Planner/Settings)
-    deactivate Sidebar
-
-    alt User Selects "Planner"
-        Main->>Planner: render_planner(config)
-        activate Planner
-        
-        opt Data Initialization
-            Planner->>Logic: generate_empty_schedule(year, month)
-            Logic-->>Planner: RosterDF, DayConfigDF
-        end
-
-        Planner-->>User: Displays Editable Roster Grid & Toolbar
-        
-        User->>Planner: Modifies Constraints (Grid/Day Config)
-        
-        User->>Planner: Clicks "Auto-Fill Schedule"
-        Planner->>Logic: run_solver(df_roster, df_days, config, balance)
-        activate Logic
-        
-        Logic->>Logic: prepare_solver_request()
-        Note right of Logic: Transforms DataFrames to SolverRequest
-        
-        Logic->>Engine: Init DutySchedulerEngine(config, request)
-        activate Engine
-        
-        Engine->>Engine: build_model()
-        Engine->>ORTools: Create Variables (Person, Day, Shift)
-        Engine->>ORTools: Add Hard Constraints (Coverage, 24H rules, etc.)
-        Engine->>ORTools: Add Soft Constraints (Fairness/Objectives)
-        
-        Engine->>Engine: solve()
-        Engine->>ORTools: Solve()
-        ORTools-->>Engine: Status, Solution Values
-        
-        Engine-->>Logic: Schedule Dictionary
-        deactivate Engine
-        
-        Logic-->>Planner: Schedule Dictionary
-        deactivate Logic
-        
-        Planner->>Planner: Update Roster DataFrame
-        Planner->>Logic: calculate_stats(df_roster...)
-        Logic-->>Planner: Statistics DataFrame
-        
-        Planner-->>User: Displays Updated Roster & Stats
-        deactivate Planner
-
-    else User Selects "Settings"
-        Main->>Settings: render_settings(config)
-        User->>Settings: Updates Config (In-Memory)
-        User->>Sidebar: Clicks "Save Configuration"
-        Sidebar->>Data: save_config(config)
-    end
+    User->>Browser: open app / choose Planner or Settings
+    Browser->>Sidebar: load/save config, upload .xlsx (balances/constraints)
+    Browser->>Logic: generate_empty_schedule(year, month, personnel)
+    Browser->>Logic: prepare_solver_request(year, month, roster, days, config)
+    Logic->>Solver: build_model(SolverRequest)
+    Logic->>Solver: solve()
+    Solver-->>Logic: solution or failure
+    Logic->>DataMgr: save_config / load_previous_balance / load_constraints
+    Logic-->>Browser: roster_df, stats, excel_bytes (for download)
+    Browser-->>User: display roster, stats, download link
 ```
 
 ## Setup & Installation
