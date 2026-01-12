@@ -5,6 +5,7 @@ Handles the configuration settings interface.
 Allows modifying personnel list, shift constraints, and point values.
 """
 
+import holidays
 import streamlit as st
 
 from app.models.config import AppConfig
@@ -81,19 +82,30 @@ def render_settings(config: AppConfig) -> None:
     st.subheader("General Settings")
     st.caption("Settings that affect holidays and global behavior.")
 
-    country_val = st.text_input(
+    # Fetch supported countries from the holidays library
+    try:
+        supported_countries = sorted(holidays.list_supported_countries(include_aliases=False).keys())
+    except Exception:
+        supported_countries = ["SG", "US", "GB"]  # Fallback
+
+    # Determine current index
+    current_code = config.country_code
+    if current_code in supported_countries:
+        index_val = supported_countries.index(current_code)
+    else:
+        # Default to SG if current is invalid, or 0 if SG not found
+        index_val = supported_countries.index("SG") if "SG" in supported_countries else 0
+
+    country_val = st.selectbox(
         "Country Code (for Public Holidays)",
-        value=config.country_code,
-        help="Use ISO codes (e.g., 'SG', 'US', 'GB') supported by the Python 'holidays' library.",
-        key="country_code_input",
+        options=supported_countries,
+        index=index_val,
+        help="Select the country for public holiday calculations.",
+        key="country_code_select",
     )
 
-    # Simple validation: ensure not empty, default to SG if empty
-    if not country_val.strip():
-        country_val = "SG"
-
     if country_val != config.country_code:
-        st.session_state.pending_country_code_update = country_val.strip().upper()
+        st.session_state.pending_country_code_update = country_val
 
     st.markdown("---")
 

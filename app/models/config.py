@@ -11,7 +11,7 @@ from typing import Any, Container, Dict, List, Optional, Union
 
 import pandas as pd
 from dateutil.relativedelta import relativedelta
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -238,9 +238,10 @@ class AppConfig(BaseModel):
     @field_validator("country_code")
     @classmethod
     def validate_country_code(cls, v: str) -> str:
-        """Ensures country code is a non-empty 2-letter code."""
-        if not v or len(v) != 2 or not v.isalpha():
-            raise ValueError(f"Invalid country code '{v}'. Expected 2-letter ISO code.")
+        """Ensures country code is valid. Defaults to SG on error."""
+        if not v or not isinstance(v, str) or not v.isalpha():
+            logger.warning(f"Invalid country code '{v}' detected. Defaulting to 'SG'.")
+            return "SG"
         return v.upper()
 
     @classmethod
@@ -265,12 +266,65 @@ class AppConfig(BaseModel):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
         """
-        Creates a configuration instance from a dictionary.
-
-        Args:
-            data (Dict[str, Any]): Dictionary data (e.g., loaded from JSON).
-
-        Returns:
-            AppConfig: The validated configuration object.
+        Creates a configuration instance from a dictionary using strict validation.
         """
         return cls.model_validate(data)
+
+    @classmethod
+    def from_dict_with_recovery(cls, data: Dict[str, Any], fallback: Optional["AppConfig"] = None) -> "AppConfig":
+        """
+        Creates a configuration from a dictionary, attempting to recover from validation errors.
+        If a field is invalid, it falls back to the value from the 'fallback' config 
+        (or system defaults if fallback is None).
+        
+        Args:
+            data: The input dictionary (e.g., from JSON).
+            fallback: The 'safe' configuration to fallback to. 
+                      If uploading, this is likely the current server state.
+                      If loading from disk, this is None (implies system defaults).
+        """
+        # If no fallback is provided, use the system defaults as the source of truth
+        if fallback is None:
+            fallback = cls()
+
+        retries = 3
+        current_data = data
+
+        for _ in range(retries):
+            try:
+                # Try validation
+                return cls.model_validate(current_data)
+            except ValidationError as e:
+                # Iterate errors and patch current_data
+                for error in e.errors():
+                    loc = error["loc"]
+                    logger.warning(f"Config Validation Error at {loc}: {error['msg']}. Resetting to fallback value.")
+
+                    # Helper to get value from the Fallback Object
+                    try:
+                        val = fallback
+                        for key in loc:
+                            if isinstance(val, dict):
+                                val = val.get(key)
+                            else:
+                                val = getattr(val, str(key))
+                        fallback_value = val
+                    except (AttributeError, KeyError, TypeError):
+                        # If fallback path doesn't exist (unlikely), force use system default for that top level
+                        logger.error(f"Could not find fallback for {loc}. Using generic default.")
+                        fallback_value = None # This might cause another error, but logic generally holds for our schema
+
+                    # Helper to set value in the Data Dict
+                    target = current_data
+                    for key in loc[:-1]:
+                        target = target.setdefault(key, {})
+                    
+                    # If fallback found, use it; else delete the bad key to let Pydantic use its default
+                    if fallback_value is not None:
+                        target[loc[-1]] = fallback_value
+                    elif loc[-1] in target:
+                        del target[loc[-1]]
+
+        # If retries exhausted (unlikely), return the fallback completely
+        logger.error("Too many validation failures. Reverting to full fallback config.")
+        return fallback

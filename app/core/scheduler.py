@@ -247,6 +247,9 @@ class DutySchedulerEngine:
         SCALE = 100
 
         # High penalty to discourage soft bans (equivalent to 50 points difference)
+        # Rationale: This value is chosen to be significantly higher than normal point variations
+        # to effectively act as a soft constraint, while still allowing the solver to violate it
+        # if no other solution exists (unlike a hard constraint).
         SOFT_BAN_WEIGHT = 50 * SCALE
 
         for person in self.req.staff_ids:

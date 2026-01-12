@@ -5,6 +5,7 @@ Handles the sidebar navigation and configuration inputs.
 """
 
 import datetime
+import json
 import logging
 
 import pandas as pd
@@ -83,9 +84,12 @@ def render_sidebar() -> str:
         # Process only if this specific file hasn't been processed yet
         if st.session_state.config_upload_id != current_file_id:
             try:
-                # Parse JSON and validate via Pydantic
+                # Parse JSON dict
                 content = uploaded_config.read()
-                new_config = AppConfig.model_validate_json(content)
+                data = json.loads(content)
+                
+                # Robust validation: Fallback to current server config for any invalid fields
+                new_config = AppConfig.from_dict_with_recovery(data, fallback=st.session_state.app_config)
 
                 # Update session state
                 st.session_state.app_config = new_config
