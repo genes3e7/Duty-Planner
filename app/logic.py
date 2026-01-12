@@ -9,7 +9,7 @@ It handles data transformation, safe parsing, and orchestrating the solving proc
 import io
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import holidays
 import pandas as pd

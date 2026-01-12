@@ -9,7 +9,6 @@ import pandas as pd
 import pytest
 
 from app import logic
-from app.models.config import AppConfig
 
 # Note: default_config fixture is available from conftest.py
 
@@ -101,19 +100,13 @@ def test_synchronize_roster_defensive():
 def test_apply_imported_constraints_logic():
     """Test applying a dictionary of constraints to the dataframe."""
     # Initial Roster
-    roster = pd.DataFrame(
-        {"D1": ["", ""], "D2": ["", ""]}, 
-        index=["Alice", "Bob"]
-    )
-    
+    roster = pd.DataFrame({"D1": ["", ""], "D2": ["", ""]}, index=["Alice", "Bob"])
+
     # Import Data: Alice D1=AM, Bob D2=X
-    imported = {
-        "Alice": {1: "AM"},
-        "Bob": {2: "X"}
-    }
-    
+    imported = {"Alice": {1: "AM"}, "Bob": {2: "X"}}
+
     result = logic.apply_imported_constraints(roster, imported)
-    
+
     assert result.at["Alice", "D1"] == "AM"
     assert result.at["Bob", "D2"] == "X"
     # Ensure untouched remain empty
@@ -123,13 +116,13 @@ def test_apply_imported_constraints_logic():
 def test_apply_imported_constraints_partial_match():
     """Test handling of names that don't exist in the roster."""
     roster = pd.DataFrame({"D1": [""]}, index=["Alice"])
-    
+
     imported = {
         "Charlie": {1: "AM"},  # Should be ignored
-        "Alice": {1: "PM"}     # Should apply
+        "Alice": {1: "PM"},  # Should apply
     }
-    
+
     result = logic.apply_imported_constraints(roster, imported)
-    
+
     assert result.at["Alice", "D1"] == "PM"
     assert "Charlie" not in result.index

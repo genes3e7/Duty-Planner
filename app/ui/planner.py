@@ -204,7 +204,11 @@ def render_planner(config: AppConfig) -> None:
 
         # Fairness Metric: Standard Deviation should be based on CUMULATIVE points (Carry Over)
         # to ensure long-term balance, not just monthly balance.
-        std_total = stats_df["Carry Over"].std()
+        if "Carry Over" in stats_df.columns:
+            std_total = stats_df["Carry Over"].std()
+        else:
+            std_total = 0.0
+
         if pd.isna(std_total):
             std_total = 0.0
 

@@ -29,27 +29,39 @@ def main():
     try:
         # 1. Identify Supported Versions
         supported_versions = []
-        if os.path.exists(artifacts_dir):
-            # List artifacts directory to find success markers
-            for file in os.listdir(artifacts_dir):
-                if file.startswith("python_version_") and file.endswith(".txt"):
-                    # Extract version number from filename: python_version_3.12.txt -> 3.12
-                    version = file.replace("python_version_", "").replace(".txt", "")
-                    supported_versions.append(version)
+
+        if not os.path.exists(artifacts_dir):
+            print(f"Error: Artifacts directory '{artifacts_dir}' not found.")
+            sys.exit(1)
+
+        # List artifacts directory to find success markers
+        for file in os.listdir(artifacts_dir):
+            if file.startswith("python_version_") and file.endswith(".txt"):
+                # Extract version number from filename: python_version_3.12.txt -> 3.12
+                version = file.replace("python_version_", "").replace(".txt", "")
+                supported_versions.append(version)
 
         # Dedup
         unique_versions = list(set(supported_versions))
 
-        # Numeric Sort (3.10 > 3.9)
-        # Convert "3.10" -> (3, 10) for sorting
-        def version_key(v):
+        # Helper to parse version string safely
+        def parse_version(v):
             try:
                 return tuple(map(int, v.split(".")))
             except ValueError:
-                print(f"Warning: Malformed version string '{v}', skipping from sort order.")
-                return (0, 0)
+                return None
 
-        unique_versions.sort(key=version_key)
+        # Filter valid versions
+        valid_versions = []
+        for v in unique_versions:
+            if parse_version(v) is not None:
+                valid_versions.append(v)
+            else:
+                print(f"Warning: Malformed version string '{v}', skipping.")
+
+        # Numeric Sort (3.10 > 3.9)
+        valid_versions.sort(key=parse_version)
+        unique_versions = valid_versions
 
         if not unique_versions:
             print("No supported versions found in artifacts.")

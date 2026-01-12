@@ -73,7 +73,8 @@ def render_settings(config: AppConfig) -> None:
                     format="%d",
                 )
             )
-            if val != config.constraints.personnel_needed_per_shift.get(shift_name):
+            # Use same default as value retrieval to avoid comparing int to None
+            if val != config.constraints.personnel_needed_per_shift.get(shift_name, 1):
                 updates[shift_name] = val
 
     if updates:
