@@ -28,8 +28,8 @@ These rules **must** be met. If they cannot be satisfied, the solver will return
 * **Fixed Assignments:** Any manual entry in the grid (e.g., a user manually assigned 'AM') is treated as locked.
 * **Availability:** Staff marked as 'X' (Unavailable) cannot be assigned duties.
 * **Physiological Limits:**
-    * Max 1 shift per person per day.
-    * Specific "Hard Ban" transitions (see table below) are forbidden.
+  * Max 1 shift per person per day.
+  * Specific "Hard Ban" transitions (see table below) are forbidden.
 
 ### 2. Soft Constraints (Optimization Targets)
 These are rules the solver *tries* to follow but can break if necessary to find a solution. Breaking them incurs a "penalty."
@@ -119,13 +119,13 @@ sequenceDiagram
 The project employs a comprehensive testing strategy:
 
 * **Unit Tests (`tests/test_logic.py`, `tests/test_data.py`):**
-    * *Methodology:* **Mocking & Isolation**. External dependencies (like File I/O) are mocked to test data parsing logic purely.
-    * *Focus:* Input validation, data transformation, and correct handling of edge cases (e.g., invalid dates).
+  * *Methodology:* **Mocking & Isolation**. External dependencies (like File I/O) are mocked to test data parsing logic purely.
+  * *Focus:* Input validation, data transformation, and correct handling of edge cases (e.g., invalid dates).
 * **Core Logic Tests (`tests/test_core_scheduler.py`):**
-    * *Methodology:* **Constraint Verification**. Sets up specific minimal scenarios to prove that hard constraints (like "No consecutive 24H shifts") actually prevent invalid solutions.
-    * *Focus:* Mathematical correctness of the OR-Tools model against the Transition Permutations defined above.
+  * *Methodology:* **Constraint Verification**. Sets up specific minimal scenarios to prove that hard constraints (like "No consecutive 24H shifts") actually prevent invalid solutions.
+  * *Focus:* Mathematical correctness of the OR-Tools model against the Transition Permutations defined above.
 * **Integration Tests (`tests/test_app_integration.py`):**
-    * *Methodology:* **Headless UI Testing**. Uses `streamlit.testing` to simulate a user clicking buttons and changing settings to ensure the state updates correctly across the app.
+  * *Methodology:* **Headless UI Testing**. Uses `streamlit.testing` to simulate a user clicking buttons and changing settings to ensure the state updates correctly across the app.
 
 ## Deployment
 
