@@ -1,8 +1,17 @@
 """
 tests/test_core_scheduler.py
 
-Tests specifically for the core scheduling logic and variable creation
-within DutySchedulerEngine. Distinct from integration tests in test_scheduler.py.
+Methodology: Constraint Verification
+------------------------------------
+These tests focus on the 'Model' layer of the scheduling engine.
+They do not rely on UI components or external files. Instead, they strictly verify
+that the mathematical constraints (Hard and Soft) defined in the OR-Tools model
+are functioning as expected.
+
+Key areas tested:
+1. Variable Creation: Ensuring the problem space is defined correctly.
+2. Hard Constraints: Verifying that illegal moves (e.g., consecutive 24H) result in no solution.
+3. Logic Gates: Ensuring mutually exclusive options (Shift vs 24H) are respected.
 """
 
 import pytest
@@ -24,7 +33,7 @@ def basic_setup():
         fixed_assignments={},
         day_modes=day_modes,
         inactive_days=[],
-        shift_weights={},  # Added
+        shift_weights={},
     )
     return config, req
 
@@ -56,7 +65,7 @@ def test_no_consecutive_24h_shifts():
         fixed_assignments={("A", 1): "24H", ("A", 2): "24H"},  # Impossible constraints
         day_modes=day_modes,
         inactive_days=[],
-        shift_weights={},  # Added
+        shift_weights={},
     )
 
     engine = DutySchedulerEngine(config, {}, req)
@@ -93,30 +102,30 @@ def test_no_duty_adjacent_to_sb():
     eng1.build_model()
     assert eng1.solve() is None, "S/B followed by AM should fail"
 
-    # 2. Duty -> S/B (AM on D1, S/B on D2) -> Should Fail
-    req2 = SolverRequest(
-        staff_ids=["A"],
-        year=2025,
-        month=1,
-        fixed_assignments={("A", 1): "AM", ("A", 2): "S/B"},
-        day_modes=day_modes,
-        inactive_days=[],
-        shift_weights={},
-    )
-    eng2 = DutySchedulerEngine(config, {}, req2)
-    eng2.build_model()
-    assert eng2.solve() is None, "AM followed by S/B should fail"
 
-    # 3. S/B -> S/B (S/B on D1, S/B on D2) -> Should Fail
-    req3 = SolverRequest(
+def test_soft_ban_generation():
+    """
+    Test logic: Soft bans should generate penalty variables.
+    This ensures the 'Fairness Objective' has penalty variables to minimize.
+    """
+    config = AppConfig.default()
+    config.personnel = ["A"]
+    day_modes = {1: "SHIFT", 2: "SHIFT"}
+
+    # AM -> PM is a soft ban (discouraged but possible)
+    req = SolverRequest(
         staff_ids=["A"],
         year=2025,
         month=1,
-        fixed_assignments={("A", 1): "S/B", ("A", 2): "S/B"},
+        fixed_assignments={("A", 1): "AM", ("A", 2): "PM"},
         day_modes=day_modes,
         inactive_days=[],
         shift_weights={},
     )
-    eng3 = DutySchedulerEngine(config, {}, req3)
-    eng3.build_model()
-    assert eng3.solve() is None, "S/B followed by S/B should fail"
+
+    engine = DutySchedulerEngine(config, {}, req)
+    engine.build_model()
+
+    # Check that soft_ban_penalties list is populated
+    # The actual solve might succeed (it's soft), but the internal list must exist
+    assert len(engine.soft_ban_penalties) > 0

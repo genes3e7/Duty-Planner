@@ -69,7 +69,6 @@ def _render_toolbar(config: AppConfig, sel_year: int, sel_month: int) -> None:
             st.rerun()
 
     with col_act3:
-        # st.button still uses use_container_width (boolean) in most versions
         if st.button("🚀 Auto-Fill Schedule", type="primary", use_container_width=True):
             with st.spinner("Solving..."):
                 res = logic.run_solver(
@@ -120,7 +119,6 @@ def _render_day_config() -> None:
             },
             # Hiding "Is_Weekend" by strictly defining column_order
             column_order=["Active", "Mode", "Is_PH"],
-            # Fixed: removed "Day" (index) from disabled list, as it's not a column
             disabled=["Date"],
             width="stretch",
             key="day_config_editor",
@@ -148,7 +146,7 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
                 date_obj = pd.Timestamp(year=sel_year, month=sel_month, day=day_num)
                 day_str = date_obj.strftime("%a")  # Mon, Tue
                 label = f"{day_num} {day_str}"
-            except (ValueError, OverflowError):  # Specific exceptions
+            except (ValueError, OverflowError):
                 label = str(day_num)
 
             # Visual Indicators in Header

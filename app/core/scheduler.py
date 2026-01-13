@@ -191,6 +191,7 @@ class DutySchedulerEngine:
         # Forbidden pairs: (Day D Shift, Day D+1 Shift) -> Strictly prevented
         forbidden_transitions = [
             ("PM", "PM"),
+            ("PM", "AM"),
             ("PM", "24H"),
             ("24H", "AM"),
             ("24H", "24H"),
@@ -201,10 +202,9 @@ class DutySchedulerEngine:
         # Soft Ban pairs: (Day D Shift, Day D+1 Shift) -> Discouraged via penalty
         soft_ban_transitions = [
             ("AM", "PM"),
-            ("PM", "AM"),
-            ("PM", "S/B"),  # Fixed: SB -> S/B
-            ("S/B", "AM"),  # Fixed: SB -> S/B
-            ("S/B", "S/B"),  # Fixed: SB -> S/B
+            ("PM", "S/B"),
+            ("S/B", "AM"),
+            ("S/B", "S/B"),
         ]
 
         for person in self.req.staff_ids:
@@ -231,7 +231,6 @@ class DutySchedulerEngine:
                         violation_var = self.model.NewBoolVar(f"soft_ban_{person}_{day}_{prev_shift}_{next_shift}")
 
                         # violation_var <=> (Prev AND Next)
-                        # This utility function forces violation_var to 1 if both conditions are met, else 0
                         self.model.AddMultiplicationEquality(
                             violation_var,
                             [self.vars[(person, day, prev_shift)], self.vars[(person, next_day, next_shift)]],
@@ -246,7 +245,6 @@ class DutySchedulerEngine:
         person_points = []
         SCALE = 100
 
-        # High penalty to discourage soft bans (equivalent to 50 points difference)
         # Rationale: This value is chosen to be significantly higher than normal point variations
         # to effectively act as a soft constraint, while still allowing the solver to violate it
         # if no other solution exists (unlike a hard constraint).
@@ -287,7 +285,6 @@ class DutySchedulerEngine:
             self.model.Add(total_penalty == 0)
 
         # Minimize Fairness Gap + Penalties
-        # This ensures stats remain accurate (based on person_points), but solver choice is influenced by penalty
         self.model.Minimize((max_pts - min_pts) + total_penalty)
 
     def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
