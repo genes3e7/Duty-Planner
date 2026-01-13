@@ -45,7 +45,7 @@ The following table defines exactly which shift transitions are allowed, penaliz
 | **AM** | **PM** | ⚠️ Soft Ban | Double shift split across days. |
 | **AM** | **24H** | ✅ Allowed | |
 | **AM** | **S/B** | ✅ Allowed | |
-| **PM** | **AM** | ⚠️ Soft Ban | Insufficient rest (<12h). |
+| **PM** | **AM** | ⛔ Hard Ban | Insufficient rest (<12h). |
 | **PM** | **PM** | ⛔ Hard Ban | |
 | **PM** | **24H** | ⛔ Hard Ban | Insufficient rest before 24H. |
 | **PM** | **S/B** | ⚠️ Soft Ban | |

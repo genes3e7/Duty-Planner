@@ -191,6 +191,7 @@ class DutySchedulerEngine:
         # Forbidden pairs: (Day D Shift, Day D+1 Shift) -> Strictly prevented
         forbidden_transitions = [
             ("PM", "PM"),
+            ("PM", "AM"),
             ("PM", "24H"),
             ("24H", "AM"),
             ("24H", "24H"),
@@ -201,7 +202,6 @@ class DutySchedulerEngine:
         # Soft Ban pairs: (Day D Shift, Day D+1 Shift) -> Discouraged via penalty
         soft_ban_transitions = [
             ("AM", "PM"),
-            ("PM", "AM"),
             ("PM", "S/B"),
             ("S/B", "AM"),
             ("S/B", "S/B"),
