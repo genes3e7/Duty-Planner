@@ -2,7 +2,7 @@
 app/logic.py
 
 This module serves as the 'Controller' in the MVC pattern.
-It bridges the Gap between the Streamlit UI (View) and the Data/Scheduler (Model).
+It bridges the gap between the Streamlit UI (View) and the Data/Scheduler (Model).
 It handles data transformation, safe parsing, and orchestrating the solving process.
 """
 
@@ -20,12 +20,14 @@ from app import constants as C
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
 from app.models.config import AppConfig
 
-# Setup logger for this module
 logger = logging.getLogger(__name__)
 
 
 def get_day_num(col_name: str) -> int:
-    """Safely extracts the day integer from a column string."""
+    """
+    Safely extracts the day integer from a column string (e.g., 'D1' -> 1).
+    Returns 0 if the format does not match.
+    """
     match = re.match(r"^D(\d+)$", str(col_name))
     if match:
         return int(match.group(1))
@@ -35,7 +37,7 @@ def get_day_num(col_name: str) -> int:
 def get_holidays(year: int, country_code: str = "SG") -> holidays.HolidayBase:
     """
     Returns the holiday object for the given country and year.
-    Defaults to Singapore (SG) if code is invalid or not found.
+    Defaults to Singapore (SG) if the provided code is invalid.
     """
     try:
         return holidays.country_holidays(country_code, years=year)
@@ -47,7 +49,18 @@ def get_holidays(year: int, country_code: str = "SG") -> holidays.HolidayBase:
 def generate_empty_schedule(
     year: int, month: int, personnel: List[str], country_code: str = "SG"
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Creates the initial empty DataFrames for the Roster and Day Configuration."""
+    """
+    Creates the initial empty DataFrames for the Roster and Day Configuration.
+
+    Args:
+        year (int): The selected year.
+        month (int): The selected month.
+        personnel (List[str]): List of staff names.
+        country_code (str): Country code for holiday generation.
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame]: (Roster DataFrame, Day Config DataFrame).
+    """
     try:
         period = pd.Period(f"{year}-{month}")
         num_days = period.days_in_month
@@ -63,7 +76,6 @@ def generate_empty_schedule(
         try:
             dt = pd.Timestamp(year=year, month=month, day=d)
         except ValueError as e:
-            # Raise error for invalid dates to prevent silent configuration issues
             raise ValueError(f"Invalid date generated: {year}-{month}-{d}") from e
 
         is_ph = dt in country_holidays
@@ -89,17 +101,17 @@ def generate_empty_schedule(
     return df_roster, df_days
 
 
-def synchronize_roster_index(df_roster: Optional[pd.DataFrame], new_personnel: List[str]) -> Optional[pd.DataFrame]:
-    """Reindexes the roster DataFrame to match a new list of personnel."""
-    if df_roster is None:
-        return None
-    # reindex handles new rows; fillna handles any existing NaN cells or new rows
-    new_df = df_roster.reindex(index=new_personnel, fill_value="")
-    return new_df.fillna("")
-
-
 def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = False) -> Optional[pd.DataFrame]:
-    """Clears data from the roster grid."""
+    """
+    Clears data from the roster grid.
+
+    Args:
+        df_roster (pd.DataFrame): The current roster.
+        clear_constraints (bool): If True, clears everything. If False, keeps 'X' (unavailable).
+
+    Returns:
+        Optional[pd.DataFrame]: The cleared dataframe.
+    """
     if df_roster is None:
         return None
 
@@ -136,14 +148,12 @@ def apply_imported_constraints(
     if df_roster is None or not imported_data:
         return df_roster
 
-    # Create a copy to avoid unintended mutation if used elsewhere
     df = df_roster.copy()
 
     for name, day_map in imported_data.items():
         if name in df.index:
             for day_num, val in day_map.items():
                 col_name = f"D{day_num}"
-                # Ensure the column exists in the current month structure
                 if col_name in df.columns:
                     df.at[name, col_name] = val
 
@@ -171,7 +181,6 @@ def prepare_solver_request(
             inactive_days.append(day_num)
         day_modes[day_num] = row["Mode"]
 
-        # Calculate exact weight for this day based on date/multipliers
         try:
             current_date = pd.Timestamp(year=year, month=month, day=day_num)
             for shift in ["AM", "PM", "24H", "S/B"]:
@@ -214,7 +223,12 @@ def run_solver(
     config: AppConfig,
     prev_balance: Dict[str, float],
 ) -> Optional[Tuple[Dict[Tuple[str, int], str], int]]:
-    """Orchestrates the solving process."""
+    """
+    Orchestrates the solving process.
+
+    Returns:
+        Optional[Tuple[Dict, int]]: (Schedule Dictionary, Solver Status Code) or None on failure.
+    """
     try:
         req = prepare_solver_request(year, month, df_roster, df_days, config)
         engine = DutySchedulerEngine(config, prev_balance, req)
@@ -231,7 +245,10 @@ def run_solver(
 def calculate_stats(
     df_roster: pd.DataFrame, df_days: pd.DataFrame, config: AppConfig, prev_balance: Dict
 ) -> pd.DataFrame:
-    """Calculates point statistics for the current roster state."""
+    """
+    Calculates point statistics for the current roster state.
+    Computes 'Month Pts' based on assignments and 'Carry Over' based on previous balance.
+    """
     summary = []
     raw_carry_overs = []
     country_holidays = get_holidays(config.year, config.country_code)
@@ -254,10 +271,7 @@ def calculate_stats(
                     try:
                         current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
                     except Exception as e:
-                        logger.warning(
-                            f"Skipping invalid date for {person} on day {day_idx}: "
-                            f"year={config.year}, month={config.month}. Error: {e}"
-                        )
+                        logger.warning(f"Skipping invalid date for {person} on day {day_idx}: {e}")
                         continue
 
                     scaled_pts = config.points.calculate_score(
@@ -275,8 +289,7 @@ def calculate_stats(
     min_carry = min(raw_carry_overs) if raw_carry_overs else 0.0
     final_stats = []
     for record in summary:
-        # Explicitly set Carry Over to Raw Total so imported points are visible
-        # Standard deviation in planner.py uses this column for fairness check.
+        # Normalize Carry Over so the lowest person starts at 0 next month
         record["Carry Over"] = record["Raw Total"] - min_carry
         final_stats.append(record)
 
@@ -284,7 +297,7 @@ def calculate_stats(
 
 
 def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, config: AppConfig) -> bytes:
-    """Generates a downloadable Excel file."""
+    """Generates a downloadable Excel file (bytes)."""
     output = io.BytesIO()
     wb = Workbook()
     ws = wb.active
@@ -308,8 +321,6 @@ def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, confi
     # Styles
     fill_header = PatternFill("solid", fgColor=C.COLOR_HEADER_BG.replace("#", ""))
     fill_x = PatternFill("solid", fgColor=C.COLOR_CONSTRAINT_BG.replace("#", ""))
-
-    # Use constants for colors
     fill_24h = PatternFill("solid", fgColor=C.COLOR_FILL_24H)
     fill_am = PatternFill("solid", fgColor=C.COLOR_FILL_AM)
     fill_pm = PatternFill("solid", fgColor=C.COLOR_FILL_PM)

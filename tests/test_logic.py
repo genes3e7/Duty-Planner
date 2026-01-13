@@ -85,18 +85,6 @@ def test_calculate_stats_multipliers(default_config):
     assert user_stats["Month Pts"] == 4.5
 
 
-def test_synchronize_roster_defensive():
-    """Test synchronization with empty or None inputs."""
-    assert logic.synchronize_roster_index(None, []) is None
-
-    df = pd.DataFrame({"D1": ["AM"]}, index=["Old"])
-    new_df = logic.synchronize_roster_index(df, ["New"])
-
-    assert "New" in new_df.index
-    assert "Old" not in new_df.index
-    assert new_df.at["New", "D1"] == ""
-
-
 def test_apply_imported_constraints_logic():
     """Test applying a dictionary of constraints to the dataframe."""
     # Initial Roster

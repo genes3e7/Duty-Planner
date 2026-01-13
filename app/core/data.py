@@ -55,8 +55,6 @@ class DataManager:
             logger.error(f"Unexpected error loading config: {e}. Using defaults.")
             return AppConfig.default()
 
-    # REMOVED: save_config method to prevent server-side data leaks.
-
     @staticmethod
     def load_previous_balance(excel_file: Union[str, Any]) -> Dict[str, float]:
         """
@@ -71,7 +69,6 @@ class DataManager:
 
         Raises:
             ValueError: If required columns ('Name', 'Carry Over') are missing.
-            Exception: Re-raises other parsing errors after logging.
         """
         if not excel_file:
             return {}
