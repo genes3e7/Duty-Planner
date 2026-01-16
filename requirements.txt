@@ -56,7 +56,7 @@ numpy==2.4.0
     #   streamlit
 openpyxl==3.1.5
     # via -r requirements.in
-ortools==9.14.6206
+ortools==9.15.6755
     # via -r requirements.in
 packaging==25.0
     # via
@@ -69,7 +69,7 @@ pandas==2.3.3
     #   streamlit
 pillow==12.1.0
     # via streamlit
-protobuf==6.31.1
+protobuf==6.33.4
     # via
     #   ortools
     #   streamlit
