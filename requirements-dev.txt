@@ -99,7 +99,7 @@ openpyxl==3.1.5
     # via
     #   -c requirements.txt
     #   -r requirements.in
-ortools==9.14.6206
+ortools==9.15.6755
     # via
     #   -c requirements.txt
     #   -r requirements.in
@@ -121,7 +121,7 @@ pillow==12.1.0
     #   streamlit
 pluggy==1.6.0
     # via pytest
-protobuf==6.31.1
+protobuf==6.33.4
     # via
     #   -c requirements.txt
     #   ortools
@@ -130,11 +130,11 @@ pyarrow==22.0.0
     # via
     #   -c requirements.txt
     #   streamlit
-pydantic==2.12.3
+pydantic==2.12.5
     # via
     #   -c requirements.txt
     #   -r requirements.in
-pydantic-core==2.41.4
+pydantic-core==2.41.5
     # via
     #   -c requirements.txt
     #   pydantic
