@@ -130,11 +130,11 @@ pyarrow==22.0.0
     # via
     #   -c requirements.txt
     #   streamlit
-pydantic==2.12.3
+pydantic==2.12.5
     # via
     #   -c requirements.txt
     #   -r requirements.in
-pydantic-core==2.41.4
+pydantic-core==2.41.5
     # via
     #   -c requirements.txt
     #   pydantic
@@ -169,7 +169,7 @@ rpds-py==0.30.0
     #   -c requirements.txt
     #   jsonschema
     #   referencing
-ruff==0.14.11
+ruff==0.14.13
     # via -r requirements-dev.in
 six==1.17.0
     # via
