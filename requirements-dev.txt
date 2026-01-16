@@ -130,11 +130,11 @@ pyarrow==22.0.0
     # via
     #   -c requirements.txt
     #   streamlit
-pydantic==2.12.3
+pydantic==2.12.5
     # via
     #   -c requirements.txt
     #   -r requirements.in
-pydantic-core==2.41.4
+pydantic-core==2.41.5
     # via
     #   -c requirements.txt
     #   pydantic
@@ -179,7 +179,7 @@ smmap==5.0.2
     # via
     #   -c requirements.txt
     #   gitdb
-streamlit==1.52.2
+streamlit==1.53.0
     # via
     #   -c requirements.txt
     #   -r requirements.in
