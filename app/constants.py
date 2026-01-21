@@ -9,8 +9,23 @@ from enum import Enum
 
 
 class ScheduleMode(Enum):
+    """
+    Enumeration defining the operating mode for a specific day.
+    """
+
     SHIFT = "SHIFT"
     FULL_24H = "24H"
+
+
+class RuleStatus(str, Enum):
+    """
+    Enumeration of possible statuses for shift transitions.
+    Used to define strictness of shift sequences in RulesConfig.
+    """
+
+    ALLOWED = "Allowed"
+    SOFT = "Soft Ban"
+    HARD = "Hard Ban"
 
 
 # --- Application Settings ---

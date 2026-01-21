@@ -12,6 +12,10 @@ from app.models.config import AppConfig
 
 
 def _ensure_pending_state() -> None:
+    """
+    Initializes session state variables for tracking pending configuration changes.
+    Ensures safe access to 'pending_*' keys before rendering widgets.
+    """
     if "pending_points_updates" not in st.session_state:
         st.session_state.pending_points_updates = {}
     if "pending_constraints_updates" not in st.session_state:
@@ -22,6 +26,8 @@ def _ensure_pending_state() -> None:
         st.session_state.pending_standby_update = None
     if "pending_max_consecutive_update" not in st.session_state:
         st.session_state.pending_max_consecutive_update = None
+    if "pending_catch_up_update" not in st.session_state:
+        st.session_state.pending_catch_up_update = None
     if "pending_country_code_update" not in st.session_state:
         st.session_state.pending_country_code_update = None
     if "pending_timeout_update" not in st.session_state:
@@ -29,16 +35,29 @@ def _ensure_pending_state() -> None:
 
 
 def _update_number_field(field_name: str, label: str, current_value: float) -> None:
-    """Helper to track a numeric point field change in session state."""
+    """
+    Renders a number input and tracks changes in session state.
+
+    Args:
+        field_name: The config field name (key).
+        label: The UI label for the input.
+        current_value: The current value from the config object.
+    """
     _ensure_pending_state()
-    # Use key to let Streamlit manage the widget state uniquely
     new_val = st.number_input(label, value=current_value, key=f"pt_{field_name}")
     if new_val != current_value:
         st.session_state.pending_points_updates[field_name] = new_val
 
 
 def _update_checkbox_field(field_name: str, label: str, current_value: bool) -> None:
-    """Helper to track a boolean point field change in session state."""
+    """
+    Renders a checkbox and tracks changes in session state.
+
+    Args:
+        field_name: The config field name (key).
+        label: The UI label for the checkbox.
+        current_value: The current boolean value.
+    """
     _ensure_pending_state()
     new_val = st.checkbox(label, value=current_value, key=f"pt_bool_{field_name}")
     if new_val != current_value:
@@ -47,7 +66,7 @@ def _update_checkbox_field(field_name: str, label: str, current_value: bool) -> 
 
 def render_settings(config: AppConfig) -> None:
     """
-    Renders the settings page.
+    Renders the settings page, including Personnel, General, Shift, and Point settings.
 
     Args:
         config (AppConfig): The application configuration object to edit.
@@ -78,9 +97,10 @@ def render_settings(config: AppConfig) -> None:
 
     st.markdown("---")
 
-    # 2. General Settings (Country Code)
+    # 2. General Settings (Country Code & Catch Up Limit)
     st.subheader("General Settings")
-    st.caption("Settings that affect holidays and global behavior.")
+
+    gen_col1, gen_col2 = st.columns(2)
 
     # Fetch supported countries from the holidays library
     try:
@@ -93,19 +113,34 @@ def render_settings(config: AppConfig) -> None:
     if current_code in supported_countries:
         index_val = supported_countries.index(current_code)
     else:
-        # Default to SG if current is invalid, or 0 if SG not found
         index_val = supported_countries.index("SG") if "SG" in supported_countries else 0
 
-    country_val = st.selectbox(
-        "Country Code (for Public Holidays)",
-        options=supported_countries,
-        index=index_val,
-        help="Select the country for public holiday calculations.",
-        key="country_code_select",
-    )
+    with gen_col1:
+        country_val = st.selectbox(
+            "Country Code (for Public Holidays)",
+            options=supported_countries,
+            index=index_val,
+            help="Select the country for public holiday calculations.",
+            key="country_code_select",
+        )
+        if country_val != config.country_code:
+            st.session_state.pending_country_code_update = country_val
 
-    if country_val != config.country_code:
-        st.session_state.pending_country_code_update = country_val
+    with gen_col2:
+        catch_up_val = st.number_input(
+            "Catch Up Limit (Additional Points)",
+            min_value=0.0,
+            value=float(config.constraints.catch_up_limit),
+            step=1.0,
+            help=(
+                "Limits the **extra** points a person can work above the monthly average to catch up on debt.\n\n"
+                "• **0**: Unlimited catch up (Standard behavior).\n"
+                "• **> 0**: Person's Monthly Points ≤ Average + This Limit."
+            ),
+            key="catch_up_limit_input",
+        )
+        if catch_up_val != config.constraints.catch_up_limit:
+            st.session_state.pending_catch_up_update = catch_up_val
 
     st.markdown("---")
 
@@ -117,7 +152,6 @@ def render_settings(config: AppConfig) -> None:
 
     for shift_name, col in shifts:
         with col:
-            # Cast to int since st.number_input returns float by default
             val = int(
                 st.number_input(
                     f"{shift_name} Staff Needed",
@@ -128,7 +162,6 @@ def render_settings(config: AppConfig) -> None:
                     key=f"constraint_{shift_name}",
                 )
             )
-            # Use same default as value retrieval to avoid comparing int to None
             if val != config.constraints.personnel_needed_per_shift.get(shift_name, 1):
                 st.session_state.pending_constraints_updates[shift_name] = val
 
@@ -198,6 +231,7 @@ def render_settings(config: AppConfig) -> None:
 
     st.divider()
 
+    # Multipliers sections...
     st.markdown("#### Multipliers")
     st.caption("Multipliers scale the base points (e.g. 2x). If unchecked, the value is added (e.g. +2).")
 
@@ -211,7 +245,7 @@ def render_settings(config: AppConfig) -> None:
 
     st.divider()
 
-    # 2. Friday Shifts (Split)
+    # 2. Friday Shifts
     st.markdown("**Friday Shifts**")
     f1, f2, f3 = st.columns(3)
 
@@ -247,7 +281,7 @@ def render_settings(config: AppConfig) -> None:
 
     st.divider()
 
-    # 4. Public Holiday Eves (Split)
+    # 4. Public Holiday Eves
     st.markdown("**Public Holiday Eves**")
     eve1, eve2, eve3 = st.columns(3)
 
@@ -268,7 +302,7 @@ def render_settings(config: AppConfig) -> None:
             "ph_eve_24h_is_multiplier", "Multiply? (Eve 24H)", config.points.ph_eve_24h_is_multiplier
         )
 
-    # Apply pending updates if any exist
+    # Apply pending updates
     if "pending_points_updates" in st.session_state and st.session_state.pending_points_updates:
         config.points = config.points.model_copy(update=st.session_state.pending_points_updates)
         st.session_state.pending_points_updates = {}
@@ -290,6 +324,10 @@ def render_settings(config: AppConfig) -> None:
         constraint_updates["max_consecutive_duties"] = st.session_state.pending_max_consecutive_update
         st.session_state.pending_max_consecutive_update = None
 
+    if st.session_state.get("pending_catch_up_update") is not None:
+        constraint_updates["catch_up_limit"] = st.session_state.pending_catch_up_update
+        st.session_state.pending_catch_up_update = None
+
     if st.session_state.get("pending_timeout_update") is not None:
         constraint_updates["solver_timeout_seconds"] = st.session_state.pending_timeout_update
         st.session_state.pending_timeout_update = None
@@ -304,7 +342,6 @@ def render_settings(config: AppConfig) -> None:
     if st.session_state.get("pending_country_code_update") is not None:
         config.country_code = st.session_state.pending_country_code_update
         st.session_state.pending_country_code_update = None
-        # Invalidate planner cache to force reload with new holidays
         if "loaded_date" in st.session_state:
             st.session_state.loaded_date = None
 

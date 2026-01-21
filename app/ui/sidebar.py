@@ -20,12 +20,21 @@ logger = logging.getLogger(__name__)
 
 def render_sidebar() -> str:
     """
-    Renders the sidebar and returns the selected navigation page.
+    Renders the sidebar navigation and utility widgets.
+
+    Handles:
+    - Page Navigation (Planner, Rules, Settings)
+    - Year/Month Selection
+    - Configuration Import/Export (JSON)
+    - Data Import (Excel Roster/Constraints)
+
+    Returns:
+        str: The name of the selected page.
     """
     st.sidebar.title("Duty Planner")
 
     # 1. Navigation
-    page = st.sidebar.radio("Navigation", ["Planner", "Settings"], key="navigation_radio")
+    page = st.sidebar.radio("Navigation", ["Planner", "Rules", "Settings"], key="navigation_radio")
 
     st.sidebar.divider()
 
@@ -53,7 +62,6 @@ def render_sidebar() -> str:
     if sel_year != config.year or sel_month != config.month:
         config.year = int(sel_year)
         config.month = int(sel_month)
-        # Invalidate planner cache if date changes
         st.session_state.loaded_date = None
 
     st.sidebar.divider()
@@ -73,41 +81,28 @@ def render_sidebar() -> str:
     # B. Upload (Load)
     uploaded_config = st.sidebar.file_uploader("Upload Config JSON", type=["json"], key="u_cfg")
 
-    # Initialize state to track processed file and prevent infinite reruns
     if "config_upload_id" not in st.session_state:
         st.session_state.config_upload_id = None
 
     if uploaded_config is not None:
-        # Identify the file uniquely (using name and size as proxy for ID)
         current_file_id = f"{uploaded_config.name}_{uploaded_config.size}"
 
-        # Process only if this specific file hasn't been processed yet
         if st.session_state.config_upload_id != current_file_id:
             try:
-                # Parse JSON dict
                 content = uploaded_config.read()
                 data = json.loads(content)
 
-                # Robust validation: Fallback to current server config for any invalid fields
                 new_config = AppConfig.from_dict_with_recovery(data, fallback=st.session_state.app_config)
-
-                # Update session state
                 st.session_state.app_config = new_config
-
-                # Force reload of derived data if years/months changed or personnel changed
                 st.session_state.loaded_date = None
-
-                # Mark as processed so we don't re-enter this block after rerun
                 st.session_state.config_upload_id = current_file_id
 
                 st.toast("Configuration loaded successfully!", icon="✅")
-                # Rerun to refresh the UI with new settings immediately
                 st.rerun()
 
             except Exception as e:
                 st.error(f"Invalid configuration file: {e}")
     else:
-        # Reset tracker if file is removed so it can be re-uploaded if needed
         st.session_state.config_upload_id = None
 
     st.sidebar.divider()
@@ -123,22 +118,16 @@ def render_sidebar() -> str:
         if uploaded_cf:
             if st.button("Confirm & Initialise", key="btn_cf"):
                 try:
-                    # 1. Load Balance
                     balance_data = DataManager.load_previous_balance(uploaded_cf)
 
                     if not balance_data:
                         st.error("No valid data found in file.")
                     else:
-                        # 2. Update Session Balance
                         st.session_state.prev_balance = balance_data
-
-                        # 3. Overwrite Personnel List
                         new_names = list(balance_data.keys())
                         if new_names:
                             config.personnel = new_names
                             st.success(f"Loaded {len(new_names)} staff & points.")
-
-                            # 4. Force Roster Re-initialization
                             st.session_state.loaded_date = None
                         else:
                             st.warning("File loaded but contained no personnel data.")
@@ -156,11 +145,8 @@ def render_sidebar() -> str:
 
         if uploaded_const:
             if st.button("Import Requests", key="btn_const"):
-                # Check if roster exists to apply constraints to
                 if "roster_df" not in st.session_state or st.session_state.roster_df is None:
-                    # Try to initialize if we have date context
                     if st.session_state.loaded_date is None:
-                        # Initialize silently if possible
                         r_df, d_df = logic.generate_empty_schedule(
                             config.year, config.month, config.personnel, config.country_code
                         )
@@ -169,7 +155,6 @@ def render_sidebar() -> str:
                         st.session_state.loaded_date = (config.year, config.month)
 
                 try:
-                    # Load and Apply
                     constraints = DataManager.load_constraints(uploaded_const)
                     if constraints:
                         updated_df = logic.apply_imported_constraints(st.session_state.roster_df, constraints)

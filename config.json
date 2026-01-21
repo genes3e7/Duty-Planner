@@ -32,6 +32,7 @@
         },
         "standby_per_day": 1,
         "max_consecutive_duties": 2,
+        "catch_up_limit": 3,
         "solver_timeout_seconds": 90.0
     },
     "points": {
@@ -55,5 +56,33 @@
         "friday_am_is_multiplier": true,
         "friday_pm_is_multiplier": true,
         "friday_24h_is_multiplier": true
+    },
+    "rules": {
+        "transitions": {
+            "AM": {
+                "AM": "Allowed",
+                "PM": "Soft Ban",
+                "24H": "Allowed",
+                "S/B": "Allowed"
+            },
+            "PM": {
+                "AM": "Hard Ban",
+                "PM": "Hard Ban",
+                "24H": "Hard Ban",
+                "S/B": "Soft Ban"
+            },
+            "24H": {
+                "AM": "Hard Ban",
+                "PM": "Allowed",
+                "24H": "Hard Ban",
+                "S/B": "Hard Ban"
+            },
+            "S/B": {
+                "AM": "Soft Ban",
+                "PM": "Allowed",
+                "24H": "Hard Ban",
+                "S/B": "Soft Ban"
+            }
+        }
     }
 }
