@@ -22,6 +22,8 @@ def _ensure_pending_state() -> None:
         st.session_state.pending_standby_update = None
     if "pending_max_consecutive_update" not in st.session_state:
         st.session_state.pending_max_consecutive_update = None
+    if "pending_catch_up_update" not in st.session_state:
+        st.session_state.pending_catch_up_update = None
     if "pending_country_code_update" not in st.session_state:
         st.session_state.pending_country_code_update = None
     if "pending_timeout_update" not in st.session_state:
@@ -78,9 +80,10 @@ def render_settings(config: AppConfig) -> None:
 
     st.markdown("---")
 
-    # 2. General Settings (Country Code)
+    # 2. General Settings (Country Code & Catch Up Limit)
     st.subheader("General Settings")
-    st.caption("Settings that affect holidays and global behavior.")
+
+    gen_col1, gen_col2 = st.columns(2)
 
     # Fetch supported countries from the holidays library
     try:
@@ -93,19 +96,34 @@ def render_settings(config: AppConfig) -> None:
     if current_code in supported_countries:
         index_val = supported_countries.index(current_code)
     else:
-        # Default to SG if current is invalid, or 0 if SG not found
         index_val = supported_countries.index("SG") if "SG" in supported_countries else 0
 
-    country_val = st.selectbox(
-        "Country Code (for Public Holidays)",
-        options=supported_countries,
-        index=index_val,
-        help="Select the country for public holiday calculations.",
-        key="country_code_select",
-    )
+    with gen_col1:
+        country_val = st.selectbox(
+            "Country Code (for Public Holidays)",
+            options=supported_countries,
+            index=index_val,
+            help="Select the country for public holiday calculations.",
+            key="country_code_select",
+        )
+        if country_val != config.country_code:
+            st.session_state.pending_country_code_update = country_val
 
-    if country_val != config.country_code:
-        st.session_state.pending_country_code_update = country_val
+    with gen_col2:
+        catch_up_val = st.number_input(
+            "Catch Up Limit (Additional Points)",
+            min_value=0.0,
+            value=float(config.constraints.catch_up_limit),
+            step=1.0,
+            help=(
+                "Limits the **extra** points a person can work above the monthly average to catch up on debt.\n\n"
+                "• **0**: Unlimited catch up (Standard behavior).\n"
+                "• **> 0**: Person's Monthly Points ≤ Average + This Limit."
+            ),
+            key="catch_up_limit_input",
+        )
+        if catch_up_val != config.constraints.catch_up_limit:
+            st.session_state.pending_catch_up_update = catch_up_val
 
     st.markdown("---")
 
@@ -198,9 +216,6 @@ def render_settings(config: AppConfig) -> None:
 
     st.divider()
 
-    st.markdown("#### Multipliers")
-    st.caption("Multipliers scale the base points (e.g. 2x). If unchecked, the value is added (e.g. +2).")
-
     # 1. Weekends
     st.markdown("**Weekends**")
     w1, w2 = st.columns(2)
@@ -289,6 +304,10 @@ def render_settings(config: AppConfig) -> None:
     if st.session_state.get("pending_max_consecutive_update") is not None:
         constraint_updates["max_consecutive_duties"] = st.session_state.pending_max_consecutive_update
         st.session_state.pending_max_consecutive_update = None
+
+    if st.session_state.get("pending_catch_up_update") is not None:
+        constraint_updates["catch_up_limit"] = st.session_state.pending_catch_up_update
+        st.session_state.pending_catch_up_update = None
 
     if st.session_state.get("pending_timeout_update") is not None:
         constraint_updates["solver_timeout_seconds"] = st.session_state.pending_timeout_update

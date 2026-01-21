@@ -13,6 +13,8 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from app.constants import ACTIVE_DUTIES, RuleStatus
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +41,35 @@ def _deep_update(target: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, An
     return target
 
 
+def _default_transition_rules() -> Dict[str, Dict[str, str]]:
+    """Generates the default transition matrix (backward compatible)."""
+    # Initialize all as Allowed
+    shifts = sorted(list(ACTIVE_DUTIES))
+    matrix = {s1: {s2: RuleStatus.ALLOWED.value for s2 in shifts} for s1 in shifts}
+
+    # Apply Default Hard Bans
+    hard_bans = [
+        ("PM", "AM"),
+        ("PM", "PM"),
+        ("PM", "24H"),
+        ("24H", "AM"),
+        ("24H", "24H"),
+        ("24H", "S/B"),
+        ("S/B", "24H"),
+    ]
+    for s1, s2 in hard_bans:
+        if s1 in matrix and s2 in matrix[s1]:
+            matrix[s1][s2] = RuleStatus.HARD.value
+
+    # Apply Default Soft Bans
+    soft_bans = [("AM", "PM"), ("PM", "S/B"), ("S/B", "AM"), ("S/B", "S/B")]
+    for s1, s2 in soft_bans:
+        if s1 in matrix and s2 in matrix[s1]:
+            matrix[s1][s2] = RuleStatus.SOFT.value
+
+    return matrix
+
+
 class ConstraintsConfig(BaseModel):
     """
     Configuration for solver constraints and rules.
@@ -52,6 +83,9 @@ class ConstraintsConfig(BaseModel):
 
     max_consecutive_duties: int = Field(3, ge=1)
     """Maximum number of consecutive days a person can work before a break."""
+
+    catch_up_limit: float = Field(0.0, ge=0.0)
+    """Max extra points above average a person can work. 0 means unlimited."""
 
     solver_timeout_seconds: float = Field(90.0, ge=1.0)
     """Maximum time (in seconds) the solver is allowed to run."""
@@ -74,33 +108,28 @@ class PointsConfig(BaseModel):
     Configuration for the point scoring system.
     """
 
+    # Base Points
     AM: float = Field(1.0, ge=0)
     PM: float = Field(1.0, ge=0)
     FULL_24H: float = Field(2.0, ge=0, serialization_alias="24H", validation_alias="24H")
     SB: float = Field(0.0, ge=0, serialization_alias="S/B", validation_alias="S/B")
 
+    # Multipliers
     ph_multiplier: float = Field(2.0, ge=0)
-
-    # Split PH Eve into AM/PM/24H
     ph_eve_am_multiplier: float = Field(1.5, ge=0)
     ph_eve_pm_multiplier: float = Field(1.5, ge=0)
     ph_eve_24h_multiplier: float = Field(1.5, ge=0)
-
     weekend_multiplier: float = Field(1.5, ge=0)
-
-    # Friday Split: AM, PM, and 24H specific configuration
     friday_am_multiplier: float = Field(1.0, ge=0)
     friday_pm_multiplier: float = Field(1.0, ge=0)
     friday_24h_multiplier: float = Field(1.0, ge=0)
 
+    # Boolean Toggles
     ph_is_multiplier: bool = True
-
     ph_eve_am_is_multiplier: bool = True
     ph_eve_pm_is_multiplier: bool = True
     ph_eve_24h_is_multiplier: bool = True
-
     weekend_is_multiplier: bool = True
-
     friday_am_is_multiplier: bool = True
     friday_pm_is_multiplier: bool = True
     friday_24h_is_multiplier: bool = True
@@ -108,18 +137,6 @@ class PointsConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     def get_by_type(self, shift_type: str) -> float:
-        """
-        Retrieves the base point value for a specific shift type.
-
-        Args:
-            shift_type (str): The type of shift (AM, PM, 24H, S/B).
-
-        Returns:
-            float: The configured base points.
-
-        Raises:
-            ValueError: If the shift_type is unknown.
-        """
         if shift_type == "AM":
             return self.AM
         if shift_type == "PM":
@@ -128,7 +145,6 @@ class PointsConfig(BaseModel):
             return self.FULL_24H
         if shift_type == "S/B":
             return self.SB
-
         logger.error(f"Unknown shift type: {shift_type}")
         raise ValueError(f"Unknown shift type: '{shift_type}'. Expected 'AM', 'PM', '24H', or 'S/B'.")
 
@@ -139,18 +155,6 @@ class PointsConfig(BaseModel):
         scale: int = 1,
         holidays_obj: Optional[Container] = None,
     ) -> int:
-        """
-        Calculates the weighted score for a duty on a specific date.
-
-        Args:
-            date_obj: The date of the duty.
-            shift_type: The type of duty (AM, PM, etc.).
-            scale: Scaling factor for integer arithmetic (default 1).
-            holidays_obj: Container supporting `in` operator for holiday checks.
-
-        Returns:
-            int: The calculated score multiplied by `scale` and rounded.
-        """
         try:
             base = self.get_by_type(shift_type)
         except ValueError:
@@ -160,7 +164,7 @@ class PointsConfig(BaseModel):
             return 0
 
         is_ph = date_obj in holidays_obj if holidays_obj else False
-        is_weekend = date_obj.weekday() >= 5  # 5=Sat, 6=Sun
+        is_weekend = date_obj.weekday() >= 5
         is_friday = date_obj.weekday() == 4
 
         is_ph_eve = False
@@ -171,14 +175,12 @@ class PointsConfig(BaseModel):
         multiplier = 1.0
         adder = 0.0
 
-        # Priority: PH > PH Eve > Friday (Split) > Weekend
         if is_ph:
             if self.ph_is_multiplier:
                 multiplier = self.ph_multiplier
             else:
                 adder = self.ph_multiplier
         elif is_ph_eve:
-            # Handle split for PH Eves (AM, PM, 24H)
             if shift_type == "AM":
                 if self.ph_eve_am_is_multiplier:
                     multiplier = self.ph_eve_am_multiplier
@@ -195,7 +197,6 @@ class PointsConfig(BaseModel):
                 else:
                     adder = self.ph_eve_24h_multiplier
         elif is_friday:
-            # Handle split for Fridays (AM, PM, 24H)
             if shift_type == "AM":
                 if self.friday_am_is_multiplier:
                     multiplier = self.friday_am_multiplier
@@ -211,8 +212,6 @@ class PointsConfig(BaseModel):
                     multiplier = self.friday_24h_multiplier
                 else:
                     adder = self.friday_24h_multiplier
-
-        # Only check weekend if we haven't already applied a higher priority rule (like PH)
         elif is_weekend:
             if self.weekend_is_multiplier:
                 multiplier = self.weekend_multiplier
@@ -223,35 +222,32 @@ class PointsConfig(BaseModel):
         return int(round(final_val))
 
 
+class RulesConfig(BaseModel):
+    """
+    Configuration for shift transition rules (Hard/Soft bans).
+    """
+
+    # Map: Current Shift -> Next Shift -> Status
+    transitions: Dict[str, Dict[str, str]] = Field(default_factory=_default_transition_rules)
+
+
 class AppConfig(BaseModel):
     """
     Root configuration object for the application.
-    Aggregates personnel lists, constraints, and point settings.
     """
 
-    # Dynamic default: Next month relative to today
     year: int = Field(default_factory=_get_next_month_year, ge=2000, le=2100)
-    """Year for the roster planning."""
-
     month: int = Field(default_factory=_get_next_month_month, ge=1, le=12)
-    """Month for the roster planning (1-12)."""
-
     country_code: str = Field("SG")
-    """Country code for holiday calculations (e.g., 'SG', 'US')."""
-
     personnel: List[str] = Field(default_factory=list)
-    """List of staff names available for duties."""
 
     constraints: ConstraintsConfig = Field(default_factory=ConstraintsConfig)
-    """Solver constraint settings."""
-
     points: PointsConfig = Field(default_factory=PointsConfig)
-    """Point calculation settings."""
+    rules: RulesConfig = Field(default_factory=RulesConfig)
 
     @field_validator("country_code")
     @classmethod
     def validate_country_code(cls, v: str) -> str:
-        """Ensures country code is valid. Defaults to SG on error."""
         if not v or not isinstance(v, str) or not v.isalpha():
             logger.warning(f"Invalid country code '{v}' detected. Defaulting to 'SG'.")
             return "SG"
@@ -259,123 +255,40 @@ class AppConfig(BaseModel):
 
     @classmethod
     def default(cls) -> "AppConfig":
-        """
-        Creates a default configuration instance with dummy sample data.
-        Useful for demos or when no config file exists.
-
-        Returns:
-            AppConfig: A pre-populated configuration object.
-        """
         fake_names = [f"Staff {i:02d}" for i in range(1, 21)]
         return cls(personnel=fake_names)
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        Exports the configuration to a dictionary suitable for JSON serialization.
-        Uses aliases (e.g., '24H' instead of 'FULL_24H').
-        """
         return self.model_dump(by_alias=True)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
-        """
-        Creates a configuration instance from a dictionary using strict validation.
-        """
         return cls.model_validate(data)
 
     @classmethod
     def from_dict_with_recovery(cls, data: Dict[str, Any], fallback: Optional["AppConfig"] = None) -> "AppConfig":
-        """
-        Creates a configuration from a dictionary, attempting to recover from validation errors.
-        It merges the input 'data' into the 'fallback' config first (supporting partial updates),
-        and then fixes any validation errors by reverting to the fallback values.
-
-        Args:
-            data: The input dictionary (e.g., from uploaded JSON).
-            fallback: The 'safe' configuration to merge into and fallback to.
-                      If uploading, this is likely the current server state.
-                      If loading from disk, this is None (implies system defaults).
-        """
-        # If no fallback is provided, use the system defaults as the base
         if fallback is None:
             fallback = cls()
 
-        # 1. Merge Strategy: Start with Fallback, update with Input Data
-        # This allows partial JSONs to only update specific fields while keeping others.
         current_data = fallback.model_dump(by_alias=True)
         _deep_update(current_data, data)
 
         retries = 3
-
         for _ in range(retries):
             try:
-                # Try validation
                 return cls.model_validate(current_data)
             except ValidationError as e:
-                # Iterate errors and patch current_data
                 for error in e.errors():
                     loc = error["loc"]
                     logger.warning(f"Config Validation Error at {loc}: {error['msg']}. Resetting to fallback value.")
 
-                    # 2. Retrieve Fallback Value (Safe Navigation)
-                    fallback_value = None
-                    try:
-                        val = fallback
-                        for key in loc:
-                            if isinstance(val, dict):
-                                val = val.get(key)
-                            elif isinstance(val, (list, tuple)) and isinstance(key, int):
-                                # Safe list access
-                                if 0 <= key < len(val):
-                                    val = val[key]
-                                else:
-                                    val = None  # Index out of bounds in fallback
-                            else:
-                                val = getattr(val, str(key))
-                        fallback_value = val
-                    except (AttributeError, KeyError, TypeError, IndexError):
-                        fallback_value = None
+                    if len(loc) == 1:
+                        key = loc[0]
+                        if key in current_data:
+                            del current_data[key]
+                    elif len(loc) > 1 and isinstance(current_data.get(loc[0]), dict):
+                        sub = current_data[loc[0]]
+                        if loc[1] in sub:
+                            del sub[loc[1]]
 
-                    # 3. Patch Data (Safe Assignment)
-                    target = current_data
-                    path_is_safe = True
-
-                    # Navigate to parent of the error
-                    for key in loc[:-1]:
-                        if isinstance(key, int):
-                            # Stop if we hit a list index; deep patching lists is risky/ambiguous
-                            path_is_safe = False
-                            break
-                        if not isinstance(target, dict):
-                            path_is_safe = False
-                            break
-                        target = target.setdefault(key, {})
-
-                    if path_is_safe and isinstance(target, dict):
-                        # Fix the specific field
-                        last_key = loc[-1]
-                        if fallback_value is not None:
-                            target[last_key] = fallback_value
-                        elif last_key in target:
-                            del target[last_key]
-                    else:
-                        # Fallback for complex list/structure errors: Reset top-level field
-                        root_key = loc[0]
-                        root_val = None
-                        if fallback:
-                            try:
-                                if isinstance(fallback, dict):
-                                    root_val = fallback.get(root_key)
-                                else:
-                                    root_val = getattr(fallback, str(root_key), None)
-                            except Exception:
-                                root_val = None
-
-                        if root_val is not None:
-                            current_data[root_key] = root_val
-                        elif root_key in current_data:
-                            del current_data[root_key]
-
-        # If retries exhausted (unlikely), return the fallback completely
-        logger.error("Too many validation failures. Reverting to full fallback config.")
         return fallback

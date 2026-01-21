@@ -13,6 +13,12 @@ class ScheduleMode(Enum):
     FULL_24H = "24H"
 
 
+class RuleStatus(str, Enum):
+    ALLOWED = "Allowed"
+    SOFT = "Soft Ban"
+    HARD = "Hard Ban"
+
+
 # --- Application Settings ---
 APP_TITLE = "Duty Planner"
 CONFIG_FILE = "config.json"

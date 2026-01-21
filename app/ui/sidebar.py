@@ -25,7 +25,7 @@ def render_sidebar() -> str:
     st.sidebar.title("Duty Planner")
 
     # 1. Navigation
-    page = st.sidebar.radio("Navigation", ["Planner", "Settings"], key="navigation_radio")
+    page = st.sidebar.radio("Navigation", ["Planner", "Rules", "Settings"], key="navigation_radio")
 
     st.sidebar.divider()
 

@@ -9,6 +9,7 @@ import streamlit as st
 
 from app import constants as C
 from app.ui.planner import render_planner
+from app.ui.rules import render_rules
 from app.ui.settings import render_settings
 from app.ui.sidebar import render_sidebar
 from app.utils.logger import setup_logger
@@ -37,6 +38,8 @@ def main():
 
         if page == "Planner":
             render_planner(config)
+        elif page == "Rules":
+            render_rules(config)
         elif page == "Settings":
             render_settings(config)
     else:

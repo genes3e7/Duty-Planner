@@ -88,6 +88,7 @@ app.log
 *.xlsx
 *.csv
 temp_import.xlsx
+output.txt
 
 # Temporary CI artifacts (if run locally)
 artifacts/
