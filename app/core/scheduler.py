@@ -277,7 +277,10 @@ class DutySchedulerEngine:
             if num_staff > 0:
                 avg_points = total_roster_points / num_staff
                 # Add Limit (Average + Extra Allowed)
-                max_allowed_points = int(avg_points + (catch_up_limit * SCALE))
+                # FIX: Ensure a minimum of 1 point is allowed if catch_up_limit > 0,
+                # preventing edge cases where small averages round to 0 and ban work.
+                raw_limit = int(avg_points + (catch_up_limit * SCALE))
+                max_allowed_points = max(1, raw_limit)
             else:
                 max_allowed_points = 0
 

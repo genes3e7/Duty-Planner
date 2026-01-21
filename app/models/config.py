@@ -272,6 +272,23 @@ class RulesConfig(BaseModel):
     # Map: Current Shift -> Next Shift -> Status
     transitions: Dict[str, Dict[str, str]] = Field(default_factory=_default_transition_rules)
 
+    @field_validator("transitions")
+    @classmethod
+    def validate_transitions(cls, v: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+        """
+        Validates the transition status values.
+        Any invalid status is logged and defaulted to 'Allowed' to prevent silent failures.
+        """
+        valid_statuses = {s.value for s in RuleStatus}
+        for from_shift, to_shifts in v.items():
+            for to_shift, status in to_shifts.items():
+                if status not in valid_statuses:
+                    logger.warning(
+                        f"Invalid rule status '{status}' for {from_shift}->{to_shift}. Defaulting to Allowed."
+                    )
+                    v[from_shift][to_shift] = RuleStatus.ALLOWED.value
+        return v
+
 
 class AppConfig(BaseModel):
     """

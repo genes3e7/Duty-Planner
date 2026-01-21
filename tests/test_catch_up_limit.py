@@ -167,3 +167,44 @@ def test_catch_up_limit_distribution(base_config, base_request):
 
     # A should NOT exceed 16
     assert a_count <= 16, f"Staff A exceeded limit! Count: {a_count}, Max Allowed: 16"
+
+
+def test_minimal_roster_nonzero_limit(base_config, base_request):
+    """
+    Edge Case: Minimal Roster.
+    Verifies the fix for 'Zero division' or 'Zero constraint' logic.
+    Scenario:
+        - 1 Day Only. 3 Staff. 1 AM needed.
+        - Total Points = 1 (100 scaled). Avg = 33.3.
+        - Limit = 0.8 (80 scaled). Max = 113.3.
+        - Constraint: Total <= 113.
+        - Shift = 100.
+        - Result: 100 <= 113. Should SUCCEED.
+
+    Note: Previously failed with Limit=0.1 because 100 > 43.
+    This test ensures that mathematically valid limits work and do not
+    trigger a "rounding to 0" error or silent skip of constraint.
+    """
+    base_config.constraints.catch_up_limit = 0.8
+
+    # 1 Day Only
+    day_modes = {1: ScheduleMode.SHIFT.value}
+    shift_weights = {(1, "AM"): 100}
+
+    req = SolverRequest(
+        staff_ids=["A", "B", "C"],
+        year=2025,
+        month=1,
+        fixed_assignments={},
+        day_modes=day_modes,
+        inactive_days=[],
+        shift_weights=shift_weights,
+    )
+
+    engine = DutySchedulerEngine(base_config, {}, req)
+    engine.build_model()
+    result = engine.solve()
+
+    assert result is not None, "Solver failed on minimal roster (likely due to zero-point constraint error)"
+    schedule, _ = result
+    assert len(schedule) == 1, "Should assign exactly 1 duty"
