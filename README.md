@@ -2,19 +2,17 @@
 
 A Streamlit-based application for scheduling staff duties. This tool provides an interactive interface to plan rosters, configure constraints, and optimize schedules using Google's OR-Tools.
 
-<!-- BADGES_START -->
 [![Supported Python](https://img.shields.io/badge/python-3.12_to_3.13-blue)](https://www.python.org/downloads/)
-<!-- BADGES_END -->
-
 ## Features
 
 * **Interactive Planner:** Visual grid to manually assign or view duties.
 * **Automated Scheduling:** Uses constraint programming (OR-Tools) to auto-fill the roster while respecting rules.
 * **Fairness Optimization:** Attempts to balance points (workload) across all staff, considering carried-over balances.
 * **Configurable Rules:**
+  * **Dynamic Shift Transitions:** Configure "Hard Bans" (forbidden) or "Soft Bans" (discouraged) for shift pairs (e.g., AM $\to$ PM) via the UI.
+  * **Catch Up Limit:** Prevent overloading staff who are "catching up" on points by setting a relative cap on monthly workload.
   * Set daily manpower needs (AM, PM, 24H, Standby).
-  * Define point values for different shifts.
-  * Apply multipliers for weekends and public holidays.
+  * Define point values and multipliers for Weekends/PH.
 * **Excel Export:** Download the final roster and statistics as an Excel file.
 * **Secure Client-Side Storage:** Configurations are saved to your local machine as JSON, ensuring no personal data is stored on the server.
 
@@ -29,37 +27,25 @@ These rules **must** be met. If they cannot be satisfied, the solver will return
 * **Availability:** Staff marked as 'X' (Unavailable) cannot be assigned duties.
 * **Physiological Limits:**
   * Max 1 shift per person per day.
-  * Specific "Hard Ban" transitions (see table below) are forbidden.
+  * **Transition Rules:** Any shift transition marked as "Hard Ban" in the Rules tab is strictly forbidden.
+* **Catch Up Limit (Relative Cap):**
+  * If configured (> 0), no staff member can be assigned more than `Average Monthly Points + Limit`.
+  * *Example:* If the average workload is 15 points and the limit is 5, no one can exceed 20 points, even if they have a large point deficit.
+  * Setting this to **0** disables the cap (Unlimited Catch Up).
 
 ### 2. Soft Constraints (Optimization Targets)
 These are rules the solver *tries* to follow but can break if necessary to find a solution. Breaking them incurs a "penalty."
 * **Fairness:** The solver aims to minimize the difference in total points between the busiest and least busy staff member.
-* **Soft Bans:** Specific "Soft Ban" transitions (see table below) are discouraged and penalized but allowed if no other option exists.
+* **Soft Bans:** Transitions marked as "Soft Ban" in the Rules tab are discouraged. The solver will avoid them unless strictly necessary to meet Hard Constraints.
 
 ### 3. Shift Transition Permutations (Day N $\rightarrow$ Day N+1)
-The following table defines exactly which shift transitions are allowed, penalized (Soft Ban), or forbidden (Hard Ban).
+Transitions are fully configurable via the **Rules** tab in the application. You can set any pair (e.g., AM $\to$ PM) to one of the following statuses:
 
-| Current Shift (Day N) | Next Shift (Day N+1) | Status | Notes |
-| :--- | :--- | :--- | :--- |
-| **AM** | **AM** | ✅ Allowed | |
-| **AM** | **PM** | ⚠️ Soft Ban | Double shift split across days. |
-| **AM** | **24H** | ✅ Allowed | |
-| **AM** | **S/B** | ✅ Allowed | |
-| **PM** | **AM** | ⛔ Hard Ban | Insufficient rest (<12h). |
-| **PM** | **PM** | ⛔ Hard Ban | |
-| **PM** | **24H** | ⛔ Hard Ban | Insufficient rest before 24H. |
-| **PM** | **S/B** | ⚠️ Soft Ban | |
-| **24H** | **AM** | ⛔ Hard Ban | Insufficient rest after 24H. |
-| **24H** | **PM** | ✅ Allowed | |
-| **24H** | **24H** | ⛔ Hard Ban | No consecutive 24H shifts. |
-| **24H** | **S/B** | ⛔ Hard Ban | |
-| **S/B** | **AM** | ⚠️ Soft Ban | |
-| **S/B** | **PM** | ✅ Allowed | |
-| **S/B** | **24H** | ⛔ Hard Ban | |
-| **S/B** | **S/B** | ⚠️ Soft Ban | Consecutive standby discouraged. |
-| **Empty** | **Any** | ✅ Allowed | |
-| **Any** | **Empty** | ✅ Allowed | |
-| **Empty** | **Empty** | ✅ Allowed | |
+| Status | Behavior |
+| :--- | :--- |
+| **Allowed** | ✅ Completely valid transition. |
+| **Soft Ban** | ⚠️ Discouraged. Solver will avoid this if possible (incurs penalty). |
+| **Hard Ban** | ⛔ Strictly forbidden. Solver will never assign this sequence. |
 
 ## Architecture
 
@@ -120,12 +106,12 @@ The project employs a comprehensive testing strategy:
 
 * **Unit Tests (`tests/test_logic.py`, `tests/test_data.py`):**
   * *Methodology:* **Mocking & Isolation**. External dependencies (like File I/O) are mocked to test data parsing logic purely.
-  * *Focus:* Input validation, data transformation, and correct handling of edge cases (e.g., invalid dates).
 * **Core Logic Tests (`tests/test_core_scheduler.py`):**
-  * *Methodology:* **Constraint Verification**. Sets up specific minimal scenarios to prove that hard constraints (like "No consecutive 24H shifts") actually prevent invalid solutions.
-  * *Focus:* Mathematical correctness of the OR-Tools model against the Transition Permutations defined above.
+  * *Methodology:* **Constraint Verification**. Verifies mathematical correctness of the OR-Tools model against standard constraints.
+* **Feature Tests (`tests/test_catch_up_limit.py`, `tests/test_scheduling_rules.py`):**
+  * *Methodology:* **Scenario-Based Testing**. Specifically targets new features like the Relative Catch Up Limit and Dynamic Rules Matrix to ensure edge cases (e.g., Limit=0) behave as expected.
 * **Integration Tests (`tests/test_app_integration.py`):**
-  * *Methodology:* **Headless UI Testing**. Uses `streamlit.testing` to simulate a user clicking buttons and changing settings to ensure the state updates correctly across the app.
+  * *Methodology:* **Headless UI Testing**. Simulates user interaction with Streamlit components to ensure state updates correctly.
 
 ## Deployment
 
