@@ -32,21 +32,42 @@ class SolverRequest:
         inactive_days: List[int],
         shift_weights: Dict[Tuple[int, str], int],
     ):
+        """
+        Initializes the SolverRequest.
+
+        Args:
+            staff_ids: List of available staff names.
+            year: The target year.
+            month: The target month.
+            fixed_assignments: Dictionary of (Name, Day) -> Shift Value pre-locked by user.
+            day_modes: Dictionary of Day -> Mode (SHIFT or 24H).
+            inactive_days: List of day numbers that are inactive.
+            shift_weights: Dictionary of (Day, Shift) -> Scaled Integer Points.
+        """
         self.staff_ids = staff_ids
         self.year = year
         self.month = month
         self.fixed_assignments = fixed_assignments
         self.day_modes = day_modes
         self.inactive_days = inactive_days
-        self.shift_weights = shift_weights  # Mapping: (Day, Shift) -> Scaled Integer Points
+        self.shift_weights = shift_weights
 
 
 class DutySchedulerEngine:
     """
     The main engine wrapping Google OR-Tools CP-SAT solver.
+    Orchestrates variable creation, constraint application, and solving.
     """
 
     def __init__(self, config: AppConfig, prev_balance: Dict[str, float], request: SolverRequest):
+        """
+        Initializes the scheduler engine.
+
+        Args:
+            config: The application configuration (rules, points, constraints).
+            prev_balance: Dictionary of previous month's carry-over points per person.
+            request: The solver request data object.
+        """
         self.config = config
         self.prev_balance = prev_balance
         self.req = request
@@ -60,7 +81,8 @@ class DutySchedulerEngine:
 
     def build_model(self):
         """
-        Constructs the CP-SAT model: variables, hard constraints, and objective.
+        Constructs the CP-SAT model by calling internal methods to create variables,
+        apply hard constraints, shift logic, and the fairness objective.
         """
         if not self.req.staff_ids:
             logger.warning("No staff IDs provided. Returning empty model.")
@@ -73,7 +95,10 @@ class DutySchedulerEngine:
         self._apply_fairness_objective()
 
     def _create_variables(self):
-        """Creates boolean variables for each person, day, and shift."""
+        """
+        Creates boolean decision variables for each person, day, and shift.
+        Stores them in self.vars[(person, day, shift)].
+        """
         for person in self.req.staff_ids:
             for day in self.days_range:
                 if day in self.req.inactive_days:
@@ -83,7 +108,11 @@ class DutySchedulerEngine:
                     self.vars[(person, day, shift)] = self.model.NewBoolVar(f"{person}_{day}_{shift}")
 
     def _apply_daily_coverage(self):
-        """Ensures the required number of people are assigned to each shift type."""
+        """
+        Applies Hard Constraint: Daily Coverage.
+        Ensures the required number of people are assigned to each shift type (AM, PM, 24H, S/B)
+        based on the day's mode (SHIFT vs 24H) and configuration.
+        """
         for day in self.days_range:
             if day in self.req.inactive_days:
                 continue
@@ -126,6 +155,10 @@ class DutySchedulerEngine:
             )
 
     def _apply_fixed_assignments(self):
+        """
+        Applies Hard Constraint: Fixed Assignments.
+        Locks specific cells to values provided by the user (e.g., 'X', 'AM').
+        """
         for (person, day), value in self.req.fixed_assignments.items():
             if value == "X":
                 for shift in self.shifts:
@@ -137,6 +170,12 @@ class DutySchedulerEngine:
                     self.model.Add(self.vars[v_key] == 1)
 
     def _apply_shift_logic(self):
+        """
+        Applies Physiological and Policy Constraints:
+        1. Max one shift per day per person.
+        2. Max consecutive working days.
+        3. Dynamic Transition Rules (Hard/Soft bans) from configuration.
+        """
         # 1. Max one shift per day
         for person in self.req.staff_ids:
             for day in self.days_range:
@@ -192,6 +231,13 @@ class DutySchedulerEngine:
                             self.soft_ban_penalties.append(violation_var)
 
     def _apply_fairness_objective(self):
+        """
+        Applies the optimization objective:
+        1. Calculate points for each person (Carry Over + This Month).
+        2. Minimize the gap between the busiest and least busy person.
+        3. Minimize penalties from Soft Ban violations.
+        4. Enforce Catch Up Limit if configured (Relative Cap).
+        """
         person_points = []
         SCALE = C.SCORE_SCALE_FACTOR
         SOFT_BAN_WEIGHT = 50 * SCALE
@@ -201,12 +247,9 @@ class DutySchedulerEngine:
         max_allowed_points = 0
 
         if catch_up_limit > 0:
-            # 1. Calculate Total Available Points for the month
-            # Since manpower needs are Hard Constraints, we can calculate the exact total points
-            # the roster MUST generate.
+            # Calculate Total Available Points for the month
             total_roster_points = 0
 
-            # Helper to look up configured needed count
             def get_needed(shift_type: str) -> int:
                 if shift_type == "S/B":
                     return self.config.constraints.standby_per_day
@@ -216,7 +259,6 @@ class DutySchedulerEngine:
                 if day in self.req.inactive_days:
                     continue
 
-                # Check if this shift is active for this day mode
                 mode = self.req.day_modes.get(day, C.ScheduleMode.SHIFT.value)
                 is_active_shift = False
 
@@ -231,14 +273,13 @@ class DutySchedulerEngine:
                     count = get_needed(shift)
                     total_roster_points += weight * count
 
-            # 2. Calculate Average
             num_staff = len(self.req.staff_ids)
             if num_staff > 0:
                 avg_points = total_roster_points / num_staff
-                # 3. Add Limit (Average + Extra Allowed)
+                # Add Limit (Average + Extra Allowed)
                 max_allowed_points = int(avg_points + (catch_up_limit * SCALE))
             else:
-                max_allowed_points = 0  # Should not happen
+                max_allowed_points = 0
 
         # --- End Catch Up Calculation ---
 
@@ -259,7 +300,6 @@ class DutySchedulerEngine:
 
             # **FEATURE: Catch Up Limit (Relative)**
             if catch_up_limit > 0 and max_allowed_points > 0:
-                # User cannot exceed Average + Limit
                 self.model.Add(monthly_total <= max_allowed_points)
 
             # Total Points (Carry Over + Month)
@@ -289,6 +329,12 @@ class DutySchedulerEngine:
         self.model.Minimize((max_pts - min_pts) + total_penalty)
 
     def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
+        """
+        Runs the solver and returns the resulting schedule.
+
+        Returns:
+            Optional[Tuple]: (Schedule Dict, Status Code). Returns None if failure.
+        """
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = self.config.constraints.solver_timeout_seconds
         status = solver.Solve(self.model)

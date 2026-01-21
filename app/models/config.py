@@ -32,6 +32,13 @@ def _deep_update(target: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, An
     """
     Recursively updates a dictionary.
     Used to merge partial uploaded configs into the existing full config.
+
+    Args:
+        target (Dict[str, Any]): The original dictionary to update.
+        update (Dict[str, Any]): The dictionary containing new values.
+
+    Returns:
+        Dict[str, Any]: The updated target dictionary.
     """
     for key, value in update.items():
         if isinstance(value, dict) and key in target and isinstance(target[key], dict):
@@ -42,7 +49,17 @@ def _deep_update(target: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, An
 
 
 def _default_transition_rules() -> Dict[str, Dict[str, str]]:
-    """Generates the default transition matrix (backward compatible)."""
+    """
+    Generates the default transition matrix for shift scheduling.
+
+    Populates the matrix with backward-compatible defaults:
+    - Default Hard Bans (e.g., PM -> AM).
+    - Default Soft Bans (e.g., AM -> PM).
+    - All others set to 'Allowed'.
+
+    Returns:
+        Dict[str, Dict[str, str]]: A nested dictionary representing the transition matrix.
+    """
     # Initialize all as Allowed
     shifts = sorted(list(ACTIVE_DUTIES))
     matrix = {s1: {s2: RuleStatus.ALLOWED.value for s2 in shifts} for s1 in shifts}
@@ -137,6 +154,18 @@ class PointsConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     def get_by_type(self, shift_type: str) -> float:
+        """
+        Retrieves the base point value for a specific shift type.
+
+        Args:
+            shift_type (str): The type of shift (AM, PM, 24H, S/B).
+
+        Returns:
+            float: The configured base points.
+
+        Raises:
+            ValueError: If the shift_type is unknown.
+        """
         if shift_type == "AM":
             return self.AM
         if shift_type == "PM":
@@ -155,6 +184,18 @@ class PointsConfig(BaseModel):
         scale: int = 1,
         holidays_obj: Optional[Container] = None,
     ) -> int:
+        """
+        Calculates the weighted score for a duty on a specific date.
+
+        Args:
+            date_obj: The date of the duty.
+            shift_type: The type of duty (AM, PM, etc.).
+            scale: Scaling factor for integer arithmetic (default 1).
+            holidays_obj: Container supporting `in` operator for holiday checks.
+
+        Returns:
+            int: The calculated score multiplied by `scale` and rounded.
+        """
         try:
             base = self.get_by_type(shift_type)
         except ValueError:
@@ -225,6 +266,7 @@ class PointsConfig(BaseModel):
 class RulesConfig(BaseModel):
     """
     Configuration for shift transition rules (Hard/Soft bans).
+    Stores a nested dictionary defining the status of moving from Shift A to Shift B.
     """
 
     # Map: Current Shift -> Next Shift -> Status
@@ -234,6 +276,7 @@ class RulesConfig(BaseModel):
 class AppConfig(BaseModel):
     """
     Root configuration object for the application.
+    Aggregates personnel lists, constraints, point settings, and rules.
     """
 
     year: int = Field(default_factory=_get_next_month_year, ge=2000, le=2100)
@@ -248,6 +291,7 @@ class AppConfig(BaseModel):
     @field_validator("country_code")
     @classmethod
     def validate_country_code(cls, v: str) -> str:
+        """Ensures country code is valid. Defaults to SG on error."""
         if not v or not isinstance(v, str) or not v.isalpha():
             logger.warning(f"Invalid country code '{v}' detected. Defaulting to 'SG'.")
             return "SG"
@@ -255,18 +299,41 @@ class AppConfig(BaseModel):
 
     @classmethod
     def default(cls) -> "AppConfig":
+        """
+        Creates a default configuration instance with dummy sample data.
+        Useful for demos or when no config file exists.
+
+        Returns:
+            AppConfig: A pre-populated configuration object.
+        """
         fake_names = [f"Staff {i:02d}" for i in range(1, 21)]
         return cls(personnel=fake_names)
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Exports the configuration to a dictionary suitable for JSON serialization.
+        """
         return self.model_dump(by_alias=True)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
+        """
+        Creates a configuration instance from a dictionary using strict validation.
+        """
         return cls.model_validate(data)
 
     @classmethod
     def from_dict_with_recovery(cls, data: Dict[str, Any], fallback: Optional["AppConfig"] = None) -> "AppConfig":
+        """
+        Creates a configuration from a dictionary, attempting to recover from validation errors.
+
+        Args:
+            data: The input dictionary.
+            fallback: A safe fallback configuration (e.g., current server state).
+
+        Returns:
+            AppConfig: A valid configuration object.
+        """
         if fallback is None:
             fallback = cls()
 
