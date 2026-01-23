@@ -53,7 +53,7 @@ gitpython==3.1.46
     # via
     #   -c requirements.txt
     #   streamlit
-holidays==0.88
+holidays==0.89
     # via
     #   -c requirements.txt
     #   -r requirements.in
