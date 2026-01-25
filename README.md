@@ -15,7 +15,7 @@ A Streamlit-based application for scheduling staff duties. This tool provides an
   * Apply **Manual Adj** (penalties/bonuses) for ad-hoc events.
 * **Configurable Rules:**
   * **Dynamic Shift Transitions:** Configure "Hard Bans" (forbidden) or "Soft Bans" (discouraged) for shift pairs (e.g., AM $\to$ PM) via the UI.
-  * **Catch Up Limit:** Prevent overloading staff who are "catching up" on points by setting a relative cap on monthly workload.
+  * **Catch-Up Limit:** Prevent overloading staff who are "catching up" on points by setting a relative cap on monthly workload.
 * **Excel Export:** Download the final roster and statistics as an Excel file.
 * **Secure Client-Side Storage:** Configurations are saved to your local machine as JSON, ensuring no personal data is stored on the server.
 
@@ -32,7 +32,7 @@ These rules **must** be met. If they cannot be satisfied, the solver will return
 * **Physiological Limits:**
   * Max 1 shift per person per day.
   * **Transition Rules:** Any shift transition marked as "Hard Ban" in the Rules tab is strictly forbidden.
-* **Catch Up Limit (Relative Cap):**
+* **Catch-Up Limit (Relative Cap):**
   * If configured (> 0), no staff member can be assigned more than `Average Monthly Points + Limit`.
   * Setting this to **0** disables the cap (Unlimited Catch Up).
 
