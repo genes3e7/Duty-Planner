@@ -16,8 +16,6 @@ import streamlit as st
 
 from app import logic
 from app.models.config import AppConfig
-
-# --- FIXED IMPORT ---
 from app.utils.helpers import get_shift_name
 
 logger = logging.getLogger(__name__)
@@ -48,6 +46,10 @@ def _initialize_session_state(config: AppConfig, sel_year: int, sel_month: int, 
     if "prev_balance" not in st.session_state:
         st.session_state.prev_balance = {}
 
+    # NEW: Store manual adjustments
+    if "point_adjustments" not in st.session_state:
+        st.session_state.point_adjustments = {}
+
     # Update Index Name to show Month/Year in top-left
     if st.session_state.roster_df is not None:
         st.session_state.roster_df.index.name = f"{sel_month_name} {sel_year}"
@@ -63,6 +65,7 @@ def _render_toolbar(config: AppConfig, sel_year: int, sel_month: int) -> None:
             st.session_state.roster_df = r_df
             st.session_state.day_config_df = d_df
             st.session_state.roster_version += 1
+            st.session_state.point_adjustments = {}  # Reset adjustments too
             st.rerun()
 
     with col_act2:
@@ -120,7 +123,6 @@ def _render_day_config() -> None:
                 ),
                 "Is_PH": st.column_config.CheckboxColumn("PH", width="small"),
             },
-            # Hiding "Is_Weekend" by strictly defining column_order
             column_order=["Active", "Mode", "Is_PH"],
             disabled=["Date"],
             width="stretch",
@@ -149,7 +151,6 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
             is_active = row_config["Active"]
             is_ph = row_config["Is_PH"]
 
-            # Construct Header Label: e.g. "1 Mon" or "1 Mon 🏖️"
             try:
                 date_obj = pd.Timestamp(year=sel_year, month=sel_month, day=day_num)
                 day_str = date_obj.strftime("%a")  # Mon, Tue
@@ -157,17 +158,12 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
             except (ValueError, OverflowError):
                 label = str(day_num)
 
-            # Visual Indicators in Header
             if is_ph:
                 label += " 🏖️"
-
             if not is_active:
                 label += " 🚫"
 
-            # Construct Options dynamically
             opts = ["", "X"]
-
-            # Add Active Teams
             for t in range(1, num_active + 1):
                 if mode == "24H":
                     opts.append(get_shift_name("24H", t))
@@ -175,16 +171,15 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
                     opts.append(get_shift_name("AM", t))
                     opts.append(get_shift_name("PM", t))
 
-            # Add Standby Teams
             for t in range(1, num_sb + 1):
                 opts.append(get_shift_name("S/B", t))
 
             column_config[col_name] = st.column_config.SelectboxColumn(
                 label=label,
                 options=opts,
-                width=90,  # Custom pixel width: tight fit for Emoji
+                width=90,
                 required=False,
-                disabled=not is_active,  # Disable the column if day is inactive
+                disabled=not is_active,
             )
 
     edited_roster = st.data_editor(
@@ -206,7 +201,11 @@ def _render_statistics(config: AppConfig, sel_year: int, sel_month: int) -> None
     st.subheader("Statistics")
 
     stats_df = logic.calculate_stats(
-        st.session_state.roster_df, st.session_state.day_config_df, config, st.session_state.prev_balance
+        st.session_state.roster_df,
+        st.session_state.day_config_df,
+        config,
+        st.session_state.prev_balance,
+        st.session_state.point_adjustments,  # Pass the adjustments
     )
 
     if stats_df.empty or "Month Pts" not in stats_df.columns:
@@ -216,14 +215,10 @@ def _render_statistics(config: AppConfig, sel_year: int, sel_month: int) -> None
     else:
         total_month = stats_df["Month Pts"].sum()
         avg_month = stats_df["Month Pts"].mean()
-
-        # Fairness Metric: Standard Deviation should be based on CUMULATIVE points (Carry Over)
-        # to ensure long-term balance, not just monthly balance.
         if "Carry Over" in stats_df.columns:
             std_total = stats_df["Carry Over"].std()
         else:
             std_total = 0.0
-
         if pd.isna(std_total):
             std_total = 0.0
 
@@ -232,7 +227,45 @@ def _render_statistics(config: AppConfig, sel_year: int, sel_month: int) -> None
     c2.metric("Avg Pts", f"{avg_month:.2f}")
     c3.metric("Std Dev (Total)", f"{std_total:.2f}", help="Standard Deviation of cumulative Carry Over points.")
 
-    st.dataframe(stats_df, width="stretch", hide_index=True)
+    st.caption(
+        "💡 **Manual Adj**: Add penalty (negative) or bonus (positive) points. **Brought Fwd**: Adjust starting balance."
+    )
+
+    edited_stats = st.data_editor(
+        stats_df,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Name": st.column_config.TextColumn("Name", disabled=True),
+            "Brought Fwd": st.column_config.NumberColumn(
+                "Brought Fwd", help="Starting balance for this month.", required=True, disabled=False
+            ),
+            "Roster Pts": st.column_config.NumberColumn(
+                "Roster Pts", help="Points calculated from roster assignments.", disabled=True
+            ),
+            "Manual Adj": st.column_config.NumberColumn(
+                "Manual Adj", help="Add/Deduct points manually (e.g. -5 for penalty).", required=True, disabled=False
+            ),
+            "Month Pts": st.column_config.NumberColumn("Month Pts", help="Roster Pts + Manual Adj", disabled=True),
+            "Raw Total": st.column_config.NumberColumn("Raw Total", disabled=True),
+            "Carry Over": st.column_config.NumberColumn(
+                "Carry Over", help="Brought Fwd + Month Pts - Minimum.", disabled=True
+            ),
+        },
+        key=f"stats_editor_{sel_year}_{sel_month}",
+    )
+
+    # Check for edits
+    if not edited_stats.equals(stats_df):
+        # 1. Update Brought Fwd
+        new_balances = dict(zip(edited_stats["Name"], edited_stats["Brought Fwd"], strict=False))
+        st.session_state.prev_balance.update(new_balances)
+
+        # 2. Update Manual Adjustments
+        new_adjustments = dict(zip(edited_stats["Name"], edited_stats["Manual Adj"], strict=False))
+        st.session_state.point_adjustments.update(new_adjustments)
+
+        st.rerun()
 
     xlsx_data = logic.export_to_excel_bytes(st.session_state.roster_df, stats_df, config)
     st.download_button(
@@ -247,10 +280,6 @@ def _render_statistics(config: AppConfig, sel_year: int, sel_month: int) -> None
 def render_planner(config: AppConfig) -> None:
     """
     Renders the main planning grid and actions.
-
-    Args:
-        config (AppConfig): The application configuration containing
-                            current year, month, and personnel.
     """
     sel_year = config.year
     sel_month = config.month
@@ -258,17 +287,8 @@ def render_planner(config: AppConfig) -> None:
 
     st.title(f"🗓️ Roster: {sel_month_name} {sel_year}")
 
-    # 1. Initialize Session
     _initialize_session_state(config, sel_year, sel_month, sel_month_name)
-
-    # 2. Render Toolbar
     _render_toolbar(config, sel_year, sel_month)
-
-    # 3. Render Day Config
     _render_day_config()
-
-    # 4. Render Roster Grid
     _render_roster_grid(sel_year, sel_month)
-
-    # 5. Render Statistics
     _render_statistics(config, sel_year, sel_month)

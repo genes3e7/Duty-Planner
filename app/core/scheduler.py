@@ -320,6 +320,12 @@ class DutySchedulerEngine:
 
         # --- End Catch Up Calculation ---
 
+        # Define bounds for points.
+        # FIX: Allow negative values to support negative "Brought Fwd" balances.
+        # If someone has -100 points, their total will be negative until they catch up.
+        MIN_DOMAIN = -10000000
+        MAX_DOMAIN = 10000000
+
         for person in self.req.staff_ids:
             expr = []
             for day in self.days_range:
@@ -330,13 +336,14 @@ class DutySchedulerEngine:
                     if weight > 0:
                         expr.append(self.vars[(person, day, shift)] * weight)
 
-            monthly_total = self.model.NewIntVar(0, 10000000, f"month_pts_{person}")
+            monthly_total = self.model.NewIntVar(0, MAX_DOMAIN, f"month_pts_{person}")
             self.model.Add(monthly_total == sum(expr))
 
             if catch_up_limit > 0 and max_allowed_points > 0:
                 self.model.Add(monthly_total <= max_allowed_points)
 
-            total_pts = self.model.NewIntVar(0, 10000000, f"total_pts_{person}")
+            # FIX: Use MIN_DOMAIN to allow negative totals
+            total_pts = self.model.NewIntVar(MIN_DOMAIN, MAX_DOMAIN, f"total_pts_{person}")
             carry_fwd = int(self.prev_balance.get(person, 0.0) * SCALE)
             self.model.Add(total_pts == carry_fwd + monthly_total)
 
@@ -345,8 +352,9 @@ class DutySchedulerEngine:
         if not person_points:
             return
 
-        min_pts = self.model.NewIntVar(0, 10000000, "min_points")
-        max_pts = self.model.NewIntVar(0, 10000000, "max_points")
+        # FIX: Use MIN_DOMAIN for Min/Max bounds too
+        min_pts = self.model.NewIntVar(MIN_DOMAIN, MAX_DOMAIN, "min_points")
+        max_pts = self.model.NewIntVar(MIN_DOMAIN, MAX_DOMAIN, "max_points")
 
         self.model.AddMinEquality(min_pts, person_points)
         self.model.AddMaxEquality(max_pts, person_points)

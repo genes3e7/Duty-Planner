@@ -21,15 +21,6 @@ logger = logging.getLogger(__name__)
 def render_sidebar() -> str:
     """
     Renders the sidebar navigation and utility widgets.
-
-    Handles:
-    - Page Navigation (Planner, Rules, Settings)
-    - Year/Month Selection
-    - Configuration Import/Export (JSON)
-    - Data Import (Excel Roster/Constraints)
-
-    Returns:
-        str: The name of the selected page.
     """
     st.sidebar.title("Duty Planner")
 
@@ -41,13 +32,11 @@ def render_sidebar() -> str:
     # 2. Configuration Loading
     st.sidebar.subheader("Configuration")
 
-    # Check for existing config in session, else load template from server
     if "app_config" not in st.session_state:
         st.session_state.app_config = DataManager.load_config()
 
     config: AppConfig = st.session_state.app_config
 
-    # Date Selection
     try:
         default_date = datetime.date(config.year, config.month, 1)
     except ValueError:
@@ -70,7 +59,6 @@ def render_sidebar() -> str:
     st.sidebar.caption("💾 Save/Load Session")
 
     # A. Download (Save)
-    # FIX: Use by_alias=True so keys match what the loader expects (e.g. "S/B" not "SB")
     st.sidebar.download_button(
         label="Download Config JSON",
         data=config.model_dump_json(indent=4, by_alias=True),
@@ -145,7 +133,7 @@ def render_sidebar() -> str:
         uploaded_const = st.file_uploader("Upload .xlsx", type=["xlsx"], key="u_const")
 
         if uploaded_const:
-            if st.button("Import Requests", key="btn_const"):
+            if st.button("Import Constraints", key="btn_const"):  # Standardized Label
                 if "roster_df" not in st.session_state or st.session_state.roster_df is None:
                     if st.session_state.loaded_date is None:
                         r_df, d_df = logic.generate_empty_schedule(

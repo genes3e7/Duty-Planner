@@ -19,8 +19,6 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from app import constants as C
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
 from app.models.config import AppConfig
-
-# --- FIXED IMPORT ---
 from app.utils.helpers import get_base_shift_type, get_shift_name
 
 logger = logging.getLogger(__name__)
@@ -35,10 +33,6 @@ def get_day_num(col_name: str) -> int:
     if match:
         return int(match.group(1))
     return 0
-
-
-# --- REMOVED FUNCTIONS (Now in helpers.py) ---
-# get_shift_name & get_base_shift_type are now imported
 
 
 def get_holidays(year: int, country_code: str = "SG") -> holidays.HolidayBase:
@@ -58,6 +52,15 @@ def generate_empty_schedule(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Creates the initial empty DataFrames for the Roster and Day Configuration.
+
+    Args:
+        year (int): The selected year.
+        month (int): The selected month.
+        personnel (List[str]): List of staff names.
+        country_code (str): Country code for holiday generation.
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame]: (Roster DataFrame, Day Config DataFrame).
     """
     try:
         period = pd.Period(f"{year}-{month}")
@@ -102,6 +105,13 @@ def generate_empty_schedule(
 def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = False) -> Optional[pd.DataFrame]:
     """
     Clears data from the roster grid.
+
+    Args:
+        df_roster (pd.DataFrame): The current roster.
+        clear_constraints (bool): If True, clears everything. If False, keeps 'X' (unavailable).
+
+    Returns:
+        Optional[pd.DataFrame]: The cleared dataframe.
     """
     if df_roster is None:
         return None
@@ -128,6 +138,13 @@ def apply_imported_constraints(
 ) -> Optional[pd.DataFrame]:
     """
     Updates the roster dataframe with imported values.
+
+    Args:
+        df_roster: The existing pandas DataFrame for the roster.
+        imported_data: Dictionary {Name: {DayInt: Value}} from DataManager.load_constraints.
+
+    Returns:
+        Optional[pd.DataFrame]: The updated DataFrame, or None if input roster is None.
     """
     if df_roster is None or not imported_data:
         return df_roster
@@ -175,7 +192,7 @@ def prepare_solver_request(
                     shift_name = get_shift_name(base_shift, t)
                     # Use base_shift to look up point value (AM_2 gets AM points)
                     w = config.points.calculate_score(
-                        current_date, base_shift, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
+                        current_date, shift_name, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
                     )
                     shift_weights[(day_num, shift_name)] = w
 
@@ -183,7 +200,7 @@ def prepare_solver_request(
             for t in range(1, config.constraints.num_standby_teams + 1):
                 shift_name = get_shift_name("S/B", t)
                 w = config.points.calculate_score(
-                    current_date, "S/B", scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
+                    current_date, shift_name, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
                 )
                 shift_weights[(day_num, shift_name)] = w
             # ------------------------------------------------
@@ -225,6 +242,9 @@ def run_solver(
 ) -> Optional[Tuple[Dict[Tuple[str, int], str], int]]:
     """
     Orchestrates the solving process.
+
+    Returns:
+        Optional[Tuple[Dict, int]]: (Schedule Dictionary, Solver Status Code) or None on failure.
     """
     try:
         req = prepare_solver_request(year, month, df_roster, df_days, config)
@@ -240,19 +260,32 @@ def run_solver(
 
 
 def calculate_stats(
-    df_roster: pd.DataFrame, df_days: pd.DataFrame, config: AppConfig, prev_balance: Dict
+    df_roster: pd.DataFrame,
+    df_days: pd.DataFrame,
+    config: AppConfig,
+    prev_balance: Dict[str, float],
+    manual_adjustments: Optional[Dict[str, float]] = None,
 ) -> pd.DataFrame:
     """
     Calculates point statistics for the current roster state.
     Computes 'Month Pts' based on assignments and 'Carry Over' based on previous balance.
+
+    Args:
+        manual_adjustments: Optional dictionary of {Name: AdjustmentValue}
+                            to add/subtract from monthly total.
     """
     summary = []
     raw_carry_overs = []
     country_holidays = get_holidays(config.year, config.country_code)
 
+    if manual_adjustments is None:
+        manual_adjustments = {}
+
     for person in config.personnel:
         bf = prev_balance.get(person, 0.0)
-        current_pts = 0.0
+        adj = manual_adjustments.get(person, 0.0)
+
+        roster_pts = 0.0
 
         if df_roster is not None and person in df_roster.index:
             for day_col in df_roster.columns:
@@ -264,26 +297,41 @@ def calculate_stats(
                     continue
 
                 val = df_roster.at[person, day_col]
-                # Check if val is one of the valid active duties (ignoring suffix)
                 if val:
-                    base_type = get_base_shift_type(val)
-                    if base_type in C.ACTIVE_DUTIES:
-                        try:
-                            current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
-                        except Exception as e:
-                            logger.warning(f"Skipping invalid date for {person} on day {day_idx}: {e}")
-                            continue
+                    # Logic updated to handle suffixes in calculate_score via config model
+                    # But we pass the raw string (e.g. "AM_2") so config can strip it
+                    try:
+                        current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
 
-                        scaled_pts = config.points.calculate_score(
-                            date_obj=current_date,
-                            shift_type=base_type,
-                            scale=C.SCORE_SCALE_FACTOR,
-                            holidays_obj=country_holidays,
-                        )
-                        current_pts += scaled_pts / C.SCORE_SCALE_FACTOR
+                        # Validate shift type existence (basic check)
+                        base_type = get_base_shift_type(val)
+                        if base_type in C.ACTIVE_DUTIES:
+                            scaled_pts = config.points.calculate_score(
+                                date_obj=current_date,
+                                shift_type=val,  # Pass full string "AM_2"
+                                scale=C.SCORE_SCALE_FACTOR,
+                                holidays_obj=country_holidays,
+                            )
+                            roster_pts += scaled_pts / C.SCORE_SCALE_FACTOR
+                    except Exception as e:
+                        logger.warning(f"Error calculating score for {person} on {day_idx}: {e}")
+                        continue
 
-        raw_total = bf + current_pts
-        summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})
+        # Month Pts = Points earned from duties + Manual Adjustments
+        month_total = roster_pts + adj
+
+        raw_total = bf + month_total
+
+        summary.append(
+            {
+                "Name": person,
+                "Brought Fwd": bf,
+                "Roster Pts": roster_pts,  # New breakdown column
+                "Manual Adj": adj,  # New breakdown column
+                "Month Pts": month_total,
+                "Raw Total": raw_total,
+            }
+        )
         raw_carry_overs.append(raw_total)
 
     min_carry = min(raw_carry_overs) if raw_carry_overs else 0.0

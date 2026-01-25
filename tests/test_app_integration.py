@@ -7,78 +7,69 @@ from streamlit.testing.v1 import AppTest
 
 def test_settings_personnel_modification():
     """Test that changing settings updates the config object."""
-    at = AppTest.from_file("streamlit_app.py").run()
+    at = AppTest.from_file("streamlit_app.py").run(timeout=30)
 
     # Navigate to Settings
-    at.sidebar.radio("navigation_radio").set_value("Settings").run()
+    at.sidebar.radio("navigation_radio").set_value("Settings").run(timeout=30)
 
     # Find personnel text_area by label
     personnel_area = None
     for widget in at.text_area:
-        # Streamlit sometimes has empty labels in tests or full matches
         if "Names" in widget.label:
             personnel_area = widget
             break
 
     assert personnel_area is not None, "Could not find personnel text_area"
 
-    personnel_area.input("Alice, Bob, Charlie").run()
+    personnel_area.input("Alice, Bob, Charlie").run(timeout=30)
 
     # Verify session state update
-    # Note: Streamlit tests run in a sandbox; we check the widget value or session state if accessible
     assert "Alice" in at.session_state.app_config.personnel
     assert "Bob" in at.session_state.app_config.personnel
     assert len(at.session_state.app_config.personnel) == 3
 
 
-def test_settings_shift_constraints_logic():
+def test_rules_shift_constraints_logic():
     """
-    Test the critical logic where updating a number input
-    must correctly update the dictionary in Pydantic.
+    Test that updating constraints (now in Rules page) correctly updates config.
     """
-    at = AppTest.from_file("streamlit_app.py").run()
-    at.sidebar.radio("navigation_radio").set_value("Settings").run()
+    at = AppTest.from_file("streamlit_app.py").run(timeout=30)
 
-    # The settings page has 3 number inputs for constraints: AM, PM, 24H
-    # We need to identify them. Usually they are in order of creation.
-    # Settings.py creates: AM (c1), PM (c2), 24H (c3)
+    # FIX: Navigate to "Rules" instead of "Settings"
+    at.sidebar.radio("navigation_radio").set_value("Rules").run(timeout=30)
 
-    # Let's target the "AM Staff Needed" input.
-    # We iterate to find the one with the correct label.
+    # Updated Label: "AM Staff" (was "AM Needed" / "AM Staff Needed")
     am_input = None
     for widget in at.number_input:
-        if "AM Staff Needed" in widget.label:
+        if "AM Staff" in widget.label:
             am_input = widget
             break
 
-    assert am_input is not None, "Could not find 'AM Staff Needed' widget"
+    assert am_input is not None, "Could not find 'AM Staff' widget on Rules page"
 
     # Set value to 5
-    am_input.set_value(5).run()
+    am_input.set_value(5).run(timeout=30)
 
     # Verify Config Update
-    # This proves the dict replacement logic {**old, "AM": 5} worked
     assert at.session_state.app_config.constraints.personnel_needed_per_shift["AM"] == 5
-
-    # Verify others remained untouched (default is 1)
     assert at.session_state.app_config.constraints.personnel_needed_per_shift["PM"] == 1
 
 
 def test_settings_point_multipliers():
-    """Test toggling a boolean checkbox for multipliers."""
-    at = AppTest.from_file("streamlit_app.py").run()
-    at.sidebar.radio("navigation_radio").set_value("Settings").run()
+    """Test toggling a boolean checkbox for multipliers in Settings."""
+    at = AppTest.from_file("streamlit_app.py").run(timeout=30)
+    at.sidebar.radio("navigation_radio").set_value("Settings").run(timeout=30)
 
-    # Find "Is Multiplier? (PH)" checkbox
+    # Search for specific key to be robust against label changes
     ph_checkbox = None
     for widget in at.checkbox:
-        if "Is Multiplier? (PH)" in widget.label:
+        if widget.key == "pt_bool_ph_is_multiplier":
             ph_checkbox = widget
             break
 
-    assert ph_checkbox is not None
+    assert ph_checkbox is not None, "Could not find PH multiplier checkbox"
 
     # Toggle off
-    ph_checkbox.set_value(False).run()
+    ph_checkbox.set_value(False).run(timeout=30)
 
     assert at.session_state.app_config.points.ph_is_multiplier is False
