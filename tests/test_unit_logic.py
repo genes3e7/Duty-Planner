@@ -1,8 +1,11 @@
 """
-tests/test_logic.py
+tests/test_unit_logic.py
 
-Tests for the application logic controller.
-Includes boundary tests, error handling, and data transformation checks.
+Focus: Logic Controller.
+Verifies:
+1. DataFrame generation (Empty schedule).
+2. Statistics calculation (Month points, Carry over).
+3. Constraint application.
 """
 
 import pandas as pd
@@ -10,7 +13,7 @@ import pytest
 
 from app import logic
 
-# Note: default_config fixture is available from conftest.py
+# --- Day Parsing Tests ---
 
 
 def test_get_day_num_valid():
@@ -29,10 +32,12 @@ def test_get_day_num_invalid():
     assert logic.get_day_num(None) == 0
 
 
+# --- Schedule Generation Tests ---
+
+
 def test_generate_empty_schedule_structure():
     """Test that generated dataframes have correct shape and columns."""
     roster, days = logic.generate_empty_schedule(2025, 1, ["A", "B"])
-
     assert roster.shape == (2, 31)  # Jan has 31 days
     assert "D1" in roster.columns
     assert "D31" in roster.columns
@@ -42,10 +47,11 @@ def test_generate_empty_schedule_structure():
 
 def test_generate_empty_schedule_invalid_date():
     """Test that invalid dates (e.g., month 13) raise ValueError."""
-    # The logic now strictly enforces date validity and raises ValueError
-    # instead of silently falling back to a default.
     with pytest.raises(ValueError, match="Invalid date generated"):
         logic.generate_empty_schedule(2025, 13, ["A"])
+
+
+# --- Statistics Calculation Tests ---
 
 
 def test_calculate_stats_multipliers(default_config):
@@ -63,13 +69,11 @@ def test_calculate_stats_multipliers(default_config):
     pts.ph_multiplier = 2.0
     pts.weekend_multiplier = 1.5
 
-    # Case A: PH (Multiplier)
-    # Jan 1 2025 is PH (New Year's)
+    # Case A: PH (Multiplier) -> Jan 1 2025 is PH (New Year's)
     pts.ph_is_multiplier = True
     days.at[1, "Is_PH"] = True
 
-    # Case B: Weekend (Addition)
-    # Jan 4 2025 is Saturday (Weekend)
+    # Case B: Weekend (Addition) -> Jan 4 2025 is Saturday (Weekend)
     pts.weekend_is_multiplier = False
 
     # Assign Duties
@@ -85,12 +89,12 @@ def test_calculate_stats_multipliers(default_config):
     assert user_stats["Month Pts"] == 4.5
 
 
+# --- Constraint Import Tests ---
+
+
 def test_apply_imported_constraints_logic():
     """Test applying a dictionary of constraints to the dataframe."""
-    # Initial Roster
     roster = pd.DataFrame({"D1": ["", ""], "D2": ["", ""]}, index=["Alice", "Bob"])
-
-    # Import Data: Alice D1=AM, Bob D2=X
     imported = {"Alice": {1: "AM"}, "Bob": {2: "X"}}
 
     result = logic.apply_imported_constraints(roster, imported)
