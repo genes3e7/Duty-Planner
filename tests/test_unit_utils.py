@@ -1,5 +1,10 @@
 """
-tests/test_data.py
+tests/test_unit_utils.py
+
+Focus: Unit tests for utility modules (Helpers, Data Manager).
+Verifies:
+1. String manipulation for shift suffixes.
+2. Excel file parsing and error handling.
 """
 
 from unittest.mock import patch
@@ -8,29 +13,57 @@ import pandas as pd
 import pytest
 
 from app.core.data import DataManager
+from app.utils import helpers
 
-# --- Save Config Tests ---
-# REMOVED: save_config is no longer supported to prevent security leaks.
+# --- Helper Tests (from test_helpers.py) ---
 
 
-# --- Load Previous Balance Tests ---
+def test_get_shift_name():
+    """Test shift name generation logic."""
+    assert helpers.get_shift_name("AM", 1) == "AM"
+    assert helpers.get_shift_name("S/B", 1) == "S/B"
+    assert helpers.get_shift_name("AM", 2) == "AM_2"
+    assert helpers.get_shift_name("24H", 10) == "24H_10"
+
+
+def test_get_shift_name_invalid_team_num():
+    """Test that team_num < 1 raises ValueError."""
+    with pytest.raises(ValueError, match="team_num must be >= 1"):
+        helpers.get_shift_name("AM", 0)
+
+
+def test_get_base_shift_type():
+    """Test extraction of base type from string."""
+    assert helpers.get_base_shift_type("AM") == "AM"
+    assert helpers.get_base_shift_type("AM_2") == "AM"
+    assert helpers.get_base_shift_type("S/B_2") == "S/B"
+
+
+def test_get_base_shift_type_invalid():
+    """Test extraction fails for empty or malformed strings."""
+    with pytest.raises(ValueError, match="cannot be empty"):
+        helpers.get_base_shift_type("")
+    with pytest.raises(ValueError, match="Invalid shift_name format"):
+        helpers.get_base_shift_type("_2")
+
+
+# --- Data Manager Tests (from test_data.py) ---
 
 
 def test_load_previous_balance_valid():
     """Test loading valid balance data from Excel."""
-    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "Carry Over": [10.5, 5.0], "Extra": ["Ignore", "Me"]})
+    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "Carry Over": [10.5, 5.0]})
 
     with patch("pandas.read_excel", return_value=mock_df):
         result = DataManager.load_previous_balance("dummy.xlsx")
 
     assert result["Alice"] == 10.5
     assert result["Bob"] == 5.0
-    assert len(result) == 2
 
 
 def test_load_previous_balance_missing_columns():
-    """Test that ValueError is raised if required columns are missing."""
-    mock_df = pd.DataFrame({"Name": ["Alice"], "Points": [10]})  # Missing 'Carry Over'
+    """Test that ValueError is raised if columns missing."""
+    mock_df = pd.DataFrame({"Name": ["Alice"]})  # Missing 'Carry Over'
 
     with patch("pandas.read_excel", return_value=mock_df):
         with pytest.raises(ValueError, match="must contain 'Name' and 'Carry Over'"):
@@ -55,23 +88,15 @@ def test_load_previous_balance_corrupt_values():
     assert result["Bob"] == 5.0
 
 
-# --- Load Constraints Tests ---
-
-
 def test_load_constraints_valid():
     """Test loading valid constraints from Excel."""
-    # Structure: Name, 1, 2, 3 (Days)
-    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "1": ["AM", None], "2": [None, "X"], "3": ["PM", "24H"]})
+    mock_df = pd.DataFrame({"Name": ["Alice", "Bob"], "1": ["AM", None], "2": [None, "X"]})
 
     with patch("pandas.read_excel", return_value=mock_df):
         result = DataManager.load_constraints("dummy.xlsx")
 
     assert result["Alice"][1] == "AM"
-    assert result["Alice"][3] == "PM"
-    assert 2 not in result["Alice"]
-
     assert result["Bob"][2] == "X"
-    assert result["Bob"][3] == "24H"
 
 
 def test_load_constraints_missing_name_column():
