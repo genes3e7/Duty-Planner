@@ -106,7 +106,8 @@ def render_settings(config: AppConfig) -> None:
 
     st.markdown("#### Multipliers")
     st.caption(
-        "Define bonus logic. If 'Is Multiplier?' is checked, points are multiplied (e.g. 2x). Otherwise, value is added (e.g. +2)."
+        "Define bonus logic. If 'Is Multiplier?' is checked, points are multiplied (e.g. 2x). "
+        "Otherwise, value is added (e.g. +2)."
     )
 
     # 1. Weekends
