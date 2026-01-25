@@ -14,6 +14,7 @@ from dateutil.relativedelta import relativedelta
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.constants import ACTIVE_DUTIES, RuleStatus
+from app.utils.helpers import get_base_shift_type
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,11 @@ class ConstraintsConfig(BaseModel):
     standby_per_day: int = Field(1, ge=0)
     """Number of standby (S/B) personnel required per day."""
 
+    # --- NEW FIELDS FOR MULTIPLE TEAMS ---
+    num_active_teams: int = Field(1, ge=1, description="Number of teams performing AM/PM/24H duties.")
+    num_standby_teams: int = Field(1, ge=0, description="Number of teams performing S/B duties.")
+    # -------------------------------------
+
     max_consecutive_duties: int = Field(3, ge=1)
     """Maximum number of consecutive days a person can work before a break."""
 
@@ -158,7 +164,7 @@ class PointsConfig(BaseModel):
         Retrieves the base point value for a specific shift type.
 
         Args:
-            shift_type (str): The type of shift (AM, PM, 24H, S/B).
+            shift_type (str): The type of shift (AM, PM, 24H, S/B) OR suffixed (AM_2).
 
         Returns:
             float: The configured base points.
@@ -166,15 +172,19 @@ class PointsConfig(BaseModel):
         Raises:
             ValueError: If the shift_type is unknown.
         """
-        if shift_type == "AM":
+        # Ensure we look up the BASE type (e.g., "AM_2" -> "AM")
+        base = get_base_shift_type(shift_type)
+
+        if base == "AM":
             return self.AM
-        if shift_type == "PM":
+        if base == "PM":
             return self.PM
-        if shift_type == "24H":
+        if base == "24H":
             return self.FULL_24H
-        if shift_type == "S/B":
+        if base == "S/B":
             return self.SB
-        logger.error(f"Unknown shift type: {shift_type}")
+
+        logger.error(f"Unknown shift type: {shift_type} (Base: {base})")
         raise ValueError(f"Unknown shift type: '{shift_type}'. Expected 'AM', 'PM', '24H', or 'S/B'.")
 
     def calculate_score(
@@ -197,11 +207,14 @@ class PointsConfig(BaseModel):
             int: The calculated score multiplied by `scale` and rounded.
         """
         try:
-            base = self.get_by_type(shift_type)
+            base_val = self.get_by_type(shift_type)
         except ValueError:
             return 0
 
-        if base == 0:
+        # Helper: Need base type for multiplier logic checks
+        base_type_str = get_base_shift_type(shift_type)
+
+        if base_val == 0:
             return 0
 
         is_ph = date_obj in holidays_obj if holidays_obj else False
@@ -222,33 +235,33 @@ class PointsConfig(BaseModel):
             else:
                 adder = self.ph_multiplier
         elif is_ph_eve:
-            if shift_type == "AM":
+            if base_type_str == "AM":
                 if self.ph_eve_am_is_multiplier:
                     multiplier = self.ph_eve_am_multiplier
                 else:
                     adder = self.ph_eve_am_multiplier
-            elif shift_type == "PM":
+            elif base_type_str == "PM":
                 if self.ph_eve_pm_is_multiplier:
                     multiplier = self.ph_eve_pm_multiplier
                 else:
                     adder = self.ph_eve_pm_multiplier
-            elif shift_type == "24H":
+            elif base_type_str == "24H":
                 if self.ph_eve_24h_is_multiplier:
                     multiplier = self.ph_eve_24h_multiplier
                 else:
                     adder = self.ph_eve_24h_multiplier
         elif is_friday:
-            if shift_type == "AM":
+            if base_type_str == "AM":
                 if self.friday_am_is_multiplier:
                     multiplier = self.friday_am_multiplier
                 else:
                     adder = self.friday_am_multiplier
-            elif shift_type == "PM":
+            elif base_type_str == "PM":
                 if self.friday_pm_is_multiplier:
                     multiplier = self.friday_pm_multiplier
                 else:
                     adder = self.friday_pm_multiplier
-            elif shift_type == "24H":
+            elif base_type_str == "24H":
                 if self.friday_24h_is_multiplier:
                     multiplier = self.friday_24h_multiplier
                 else:
@@ -259,7 +272,7 @@ class PointsConfig(BaseModel):
             else:
                 adder = self.weekend_multiplier
 
-        final_val = ((base * multiplier) + adder) * scale
+        final_val = ((base_val * multiplier) + adder) * scale
         return int(round(final_val))
 
 

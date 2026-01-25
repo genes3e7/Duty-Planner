@@ -20,6 +20,9 @@ from app import constants as C
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
 from app.models.config import AppConfig
 
+# --- FIXED IMPORT ---
+from app.utils.helpers import get_base_shift_type, get_shift_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,6 +35,10 @@ def get_day_num(col_name: str) -> int:
     if match:
         return int(match.group(1))
     return 0
+
+
+# --- REMOVED FUNCTIONS (Now in helpers.py) ---
+# get_shift_name & get_base_shift_type are now imported
 
 
 def get_holidays(year: int, country_code: str = "SG") -> holidays.HolidayBase:
@@ -51,15 +58,6 @@ def generate_empty_schedule(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Creates the initial empty DataFrames for the Roster and Day Configuration.
-
-    Args:
-        year (int): The selected year.
-        month (int): The selected month.
-        personnel (List[str]): List of staff names.
-        country_code (str): Country code for holiday generation.
-
-    Returns:
-        Tuple[pd.DataFrame, pd.DataFrame]: (Roster DataFrame, Day Config DataFrame).
     """
     try:
         period = pd.Period(f"{year}-{month}")
@@ -104,13 +102,6 @@ def generate_empty_schedule(
 def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = False) -> Optional[pd.DataFrame]:
     """
     Clears data from the roster grid.
-
-    Args:
-        df_roster (pd.DataFrame): The current roster.
-        clear_constraints (bool): If True, clears everything. If False, keeps 'X' (unavailable).
-
-    Returns:
-        Optional[pd.DataFrame]: The cleared dataframe.
     """
     if df_roster is None:
         return None
@@ -137,13 +128,6 @@ def apply_imported_constraints(
 ) -> Optional[pd.DataFrame]:
     """
     Updates the roster dataframe with imported values.
-
-    Args:
-        df_roster: The existing pandas DataFrame for the roster.
-        imported_data: Dictionary {Name: {DayInt: Value}} from DataManager.load_constraints.
-
-    Returns:
-        Optional[pd.DataFrame]: The updated DataFrame, or None if input roster is None.
     """
     if df_roster is None or not imported_data:
         return df_roster
@@ -183,11 +167,27 @@ def prepare_solver_request(
 
         try:
             current_date = pd.Timestamp(year=year, month=month, day=day_num)
-            for shift in ["AM", "PM", "24H", "S/B"]:
+
+            # --- Calculate weights for ALL possible teams ---
+            # 1. Active Teams (AM, PM, 24H)
+            for t in range(1, config.constraints.num_active_teams + 1):
+                for base_shift in ["AM", "PM", "24H"]:
+                    shift_name = get_shift_name(base_shift, t)
+                    # Use base_shift to look up point value (AM_2 gets AM points)
+                    w = config.points.calculate_score(
+                        current_date, base_shift, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
+                    )
+                    shift_weights[(day_num, shift_name)] = w
+
+            # 2. Standby Teams (S/B)
+            for t in range(1, config.constraints.num_standby_teams + 1):
+                shift_name = get_shift_name("S/B", t)
                 w = config.points.calculate_score(
-                    current_date, shift, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
+                    current_date, "S/B", scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
                 )
-                shift_weights[(day_num, shift)] = w
+                shift_weights[(day_num, shift_name)] = w
+            # ------------------------------------------------
+
         except ValueError as e:
             logger.error(f"Invalid date configuration for Year={year}, Month={month}, Day={day_num}: {e}")
             raise ValueError(f"Invalid date encountered: {year}-{month}-{day_num}") from e
@@ -225,9 +225,6 @@ def run_solver(
 ) -> Optional[Tuple[Dict[Tuple[str, int], str], int]]:
     """
     Orchestrates the solving process.
-
-    Returns:
-        Optional[Tuple[Dict, int]]: (Schedule Dictionary, Solver Status Code) or None on failure.
     """
     try:
         req = prepare_solver_request(year, month, df_roster, df_days, config)
@@ -267,20 +264,23 @@ def calculate_stats(
                     continue
 
                 val = df_roster.at[person, day_col]
-                if val in C.ACTIVE_DUTIES:
-                    try:
-                        current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
-                    except Exception as e:
-                        logger.warning(f"Skipping invalid date for {person} on day {day_idx}: {e}")
-                        continue
+                # Check if val is one of the valid active duties (ignoring suffix)
+                if val:
+                    base_type = get_base_shift_type(val)
+                    if base_type in C.ACTIVE_DUTIES:
+                        try:
+                            current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
+                        except Exception as e:
+                            logger.warning(f"Skipping invalid date for {person} on day {day_idx}: {e}")
+                            continue
 
-                    scaled_pts = config.points.calculate_score(
-                        date_obj=current_date,
-                        shift_type=val,
-                        scale=C.SCORE_SCALE_FACTOR,
-                        holidays_obj=country_holidays,
-                    )
-                    current_pts += scaled_pts / C.SCORE_SCALE_FACTOR
+                        scaled_pts = config.points.calculate_score(
+                            date_obj=current_date,
+                            shift_type=base_type,
+                            scale=C.SCORE_SCALE_FACTOR,
+                            holidays_obj=country_holidays,
+                        )
+                        current_pts += scaled_pts / C.SCORE_SCALE_FACTOR
 
         raw_total = bf + current_pts
         summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})
@@ -338,15 +338,17 @@ def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, confi
                 cell.font = Font(bold=True)
 
             val_str = str(cell.value).upper() if cell.value else ""
+
+            # Updated coloring logic to handle suffixes
             if val_str == "X":
                 cell.fill = fill_x
-            elif val_str == "24H":
+            elif val_str.startswith("24H"):
                 cell.fill = fill_24h
-            elif val_str == "AM":
+            elif val_str.startswith("AM"):
                 cell.fill = fill_am
-            elif val_str == "PM":
+            elif val_str.startswith("PM"):
                 cell.fill = fill_pm
-            elif val_str == "S/B":
+            elif val_str.startswith("S/B"):
                 cell.fill = fill_sb
 
     wb.save(output)

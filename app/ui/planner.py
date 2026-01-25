@@ -17,6 +17,9 @@ import streamlit as st
 from app import logic
 from app.models.config import AppConfig
 
+# --- FIXED IMPORT ---
+from app.utils.helpers import get_shift_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -133,6 +136,11 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
     st.subheader("Assignments")
 
     column_config = {}
+
+    # Retrieve team counts from current config
+    num_active = st.session_state.app_config.constraints.num_active_teams
+    num_sb = st.session_state.app_config.constraints.num_standby_teams
+
     for col_name in st.session_state.roster_df.columns:
         day_num = logic.get_day_num(col_name)
         if day_num > 0 and day_num in st.session_state.day_config_df.index:
@@ -156,8 +164,20 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
             if not is_active:
                 label += " 🚫"
 
-            # Options available
-            opts = ["", "X", "24H", "S/B"] if mode == "24H" else ["", "X", "AM", "PM", "S/B"]
+            # Construct Options dynamically
+            opts = ["", "X"]
+
+            # Add Active Teams
+            for t in range(1, num_active + 1):
+                if mode == "24H":
+                    opts.append(get_shift_name("24H", t))
+                else:
+                    opts.append(get_shift_name("AM", t))
+                    opts.append(get_shift_name("PM", t))
+
+            # Add Standby Teams
+            for t in range(1, num_sb + 1):
+                opts.append(get_shift_name("S/B", t))
 
             column_config[col_name] = st.column_config.SelectboxColumn(
                 label=label,

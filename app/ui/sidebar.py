@@ -70,9 +70,10 @@ def render_sidebar() -> str:
     st.sidebar.caption("💾 Save/Load Session")
 
     # A. Download (Save)
+    # FIX: Use by_alias=True so keys match what the loader expects (e.g. "S/B" not "SB")
     st.sidebar.download_button(
         label="Download Config JSON",
-        data=config.model_dump_json(indent=4),
+        data=config.model_dump_json(indent=4, by_alias=True),
         file_name=f"roster_config_{config.year}_{config.month}.json",
         mime="application/json",
         use_container_width=True,

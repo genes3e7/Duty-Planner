@@ -31,6 +31,8 @@
             "24H": 1
         },
         "standby_per_day": 1,
+        "num_active_teams": 1,
+        "num_standby_teams": 1,
         "max_consecutive_duties": 2,
         "catch_up_limit": 3,
         "solver_timeout_seconds": 90.0

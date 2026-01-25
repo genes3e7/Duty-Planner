@@ -147,6 +147,42 @@ def render_settings(config: AppConfig) -> None:
     # 3. Shift Constraints
     st.subheader("Shift Constraints")
 
+    # --- NEW TEAM SETTINGS ---
+    st.markdown("#### 👥 Team Configuration")
+    st.caption("Increase these numbers to schedule multiple concurrent teams.")
+
+    t1, t2 = st.columns(2)
+    with t1:
+        # Active Teams
+        curr_active = config.constraints.num_active_teams
+        new_active = st.number_input(
+            "Number of Active Teams",
+            min_value=1,
+            value=curr_active,
+            step=1,
+            help="1 Team = 1 Set of (AM + PM + 24H). 2 Teams = 2 Sets, labelled AM, AM_2, etc.",
+        )
+        if new_active != curr_active:
+            st.session_state.pending_constraints_updates["num_active_teams"] = new_active
+
+    with t2:
+        # Standby Teams
+        curr_sb = config.constraints.num_standby_teams
+        new_sb = st.number_input(
+            "Number of Standby Teams",
+            min_value=0,
+            value=curr_sb,
+            step=1,
+            help="Number of independent Standby lines required. Labelled S/B, S/B_2, etc.",
+        )
+        if new_sb != curr_sb:
+            st.session_state.pending_constraints_updates["num_standby_teams"] = new_sb
+
+    st.divider()
+    st.markdown("#### 👤 Staff per Team")
+    st.caption("Define the staff required for **one single team**.")
+    # -------------------------
+
     c1, c2, c3, c4 = st.columns(4)
     shifts = [("AM", c1), ("PM", c2), ("24H", c3)]
 
@@ -309,11 +345,26 @@ def render_settings(config: AppConfig) -> None:
 
     constraint_updates = {}
     if "pending_constraints_updates" in st.session_state and st.session_state.pending_constraints_updates:
-        new_constraints = {
-            **config.constraints.personnel_needed_per_shift,
-            **st.session_state.pending_constraints_updates,
-        }
-        constraint_updates["personnel_needed_per_shift"] = new_constraints
+        # Separate nested dict updates from top-level fields
+        nested_updates = {}
+        top_level_updates = {}
+
+        for k, v in st.session_state.pending_constraints_updates.items():
+            if k in ["AM", "PM", "24H"]:
+                nested_updates[k] = v
+            else:
+                top_level_updates[k] = v
+
+        if nested_updates:
+            new_needs = {
+                **config.constraints.personnel_needed_per_shift,
+                **nested_updates,
+            }
+            constraint_updates["personnel_needed_per_shift"] = new_needs
+
+        if top_level_updates:
+            constraint_updates.update(top_level_updates)
+
         st.session_state.pending_constraints_updates = {}
 
     if st.session_state.get("pending_standby_update") is not None:
