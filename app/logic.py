@@ -19,6 +19,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from app import constants as C
 from app.core.scheduler import DutySchedulerEngine, SolverRequest
 from app.models.config import AppConfig
+from app.utils.helpers import get_base_shift_type, get_shift_name
 
 logger = logging.getLogger(__name__)
 
@@ -183,11 +184,27 @@ def prepare_solver_request(
 
         try:
             current_date = pd.Timestamp(year=year, month=month, day=day_num)
-            for shift in ["AM", "PM", "24H", "S/B"]:
+
+            # --- Calculate weights for ALL possible teams ---
+            # 1. Active Teams (AM, PM, 24H)
+            for t in range(1, config.constraints.num_active_teams + 1):
+                for base_shift in ["AM", "PM", "24H"]:
+                    shift_name = get_shift_name(base_shift, t)
+                    # Use base_shift to look up point value (AM_2 gets AM points)
+                    w = config.points.calculate_score(
+                        current_date, shift_name, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
+                    )
+                    shift_weights[(day_num, shift_name)] = w
+
+            # 2. Standby Teams (S/B)
+            for t in range(1, config.constraints.num_standby_teams + 1):
+                shift_name = get_shift_name("S/B", t)
                 w = config.points.calculate_score(
-                    current_date, shift, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
+                    current_date, shift_name, scale=C.SCORE_SCALE_FACTOR, holidays_obj=country_holidays
                 )
-                shift_weights[(day_num, shift)] = w
+                shift_weights[(day_num, shift_name)] = w
+            # ------------------------------------------------
+
         except ValueError as e:
             logger.error(f"Invalid date configuration for Year={year}, Month={month}, Day={day_num}: {e}")
             raise ValueError(f"Invalid date encountered: {year}-{month}-{day_num}") from e
@@ -243,19 +260,32 @@ def run_solver(
 
 
 def calculate_stats(
-    df_roster: pd.DataFrame, df_days: pd.DataFrame, config: AppConfig, prev_balance: Dict
+    df_roster: pd.DataFrame,
+    df_days: pd.DataFrame,
+    config: AppConfig,
+    prev_balance: Dict[str, float],
+    manual_adjustments: Optional[Dict[str, float]] = None,
 ) -> pd.DataFrame:
     """
     Calculates point statistics for the current roster state.
     Computes 'Month Pts' based on assignments and 'Carry Over' based on previous balance.
+
+    Args:
+        manual_adjustments: Optional dictionary of {Name: AdjustmentValue}
+                            to add/subtract from monthly total.
     """
     summary = []
     raw_carry_overs = []
     country_holidays = get_holidays(config.year, config.country_code)
 
+    if manual_adjustments is None:
+        manual_adjustments = {}
+
     for person in config.personnel:
         bf = prev_balance.get(person, 0.0)
-        current_pts = 0.0
+        adj = manual_adjustments.get(person, 0.0)
+
+        roster_pts = 0.0
 
         if df_roster is not None and person in df_roster.index:
             for day_col in df_roster.columns:
@@ -267,23 +297,41 @@ def calculate_stats(
                     continue
 
                 val = df_roster.at[person, day_col]
-                if val in C.ACTIVE_DUTIES:
+                if val:
+                    # Logic updated to handle suffixes in calculate_score via config model
+                    # But we pass the raw string (e.g. "AM_2") so config can strip it
                     try:
                         current_date = pd.Timestamp(year=config.year, month=config.month, day=day_idx)
+
+                        # Validate shift type existence (basic check)
+                        base_type = get_base_shift_type(val)
+                        if base_type in C.ACTIVE_DUTIES:
+                            scaled_pts = config.points.calculate_score(
+                                date_obj=current_date,
+                                shift_type=val,  # Pass full string "AM_2"
+                                scale=C.SCORE_SCALE_FACTOR,
+                                holidays_obj=country_holidays,
+                            )
+                            roster_pts += scaled_pts / C.SCORE_SCALE_FACTOR
                     except Exception as e:
-                        logger.warning(f"Skipping invalid date for {person} on day {day_idx}: {e}")
+                        logger.warning(f"Error calculating score for {person} on {day_idx}: {e}")
                         continue
 
-                    scaled_pts = config.points.calculate_score(
-                        date_obj=current_date,
-                        shift_type=val,
-                        scale=C.SCORE_SCALE_FACTOR,
-                        holidays_obj=country_holidays,
-                    )
-                    current_pts += scaled_pts / C.SCORE_SCALE_FACTOR
+        # Month Pts = Points earned from duties + Manual Adjustments
+        month_total = roster_pts + adj
 
-        raw_total = bf + current_pts
-        summary.append({"Name": person, "Brought Fwd": bf, "Month Pts": current_pts, "Raw Total": raw_total})
+        raw_total = bf + month_total
+
+        summary.append(
+            {
+                "Name": person,
+                "Brought Fwd": bf,
+                "Roster Pts": roster_pts,  # New breakdown column
+                "Manual Adj": adj,  # New breakdown column
+                "Month Pts": month_total,
+                "Raw Total": raw_total,
+            }
+        )
         raw_carry_overs.append(raw_total)
 
     min_carry = min(raw_carry_overs) if raw_carry_overs else 0.0
@@ -338,15 +386,17 @@ def export_to_excel_bytes(df_roster: pd.DataFrame, df_stats: pd.DataFrame, confi
                 cell.font = Font(bold=True)
 
             val_str = str(cell.value).upper() if cell.value else ""
+
+            # Updated coloring logic to handle suffixes
             if val_str == "X":
                 cell.fill = fill_x
-            elif val_str == "24H":
+            elif val_str.startswith("24H"):
                 cell.fill = fill_24h
-            elif val_str == "AM":
+            elif val_str.startswith("AM"):
                 cell.fill = fill_am
-            elif val_str == "PM":
+            elif val_str.startswith("PM"):
                 cell.fill = fill_pm
-            elif val_str == "S/B":
+            elif val_str.startswith("S/B"):
                 cell.fill = fill_sb
 
     wb.save(output)

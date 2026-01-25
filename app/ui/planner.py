@@ -16,6 +16,7 @@ import streamlit as st
 
 from app import logic
 from app.models.config import AppConfig
+from app.utils.helpers import get_shift_name
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,10 @@ def _initialize_session_state(config: AppConfig, sel_year: int, sel_month: int, 
     if "prev_balance" not in st.session_state:
         st.session_state.prev_balance = {}
 
+    # NEW: Store manual adjustments
+    if "point_adjustments" not in st.session_state:
+        st.session_state.point_adjustments = {}
+
     # Update Index Name to show Month/Year in top-left
     if st.session_state.roster_df is not None:
         st.session_state.roster_df.index.name = f"{sel_month_name} {sel_year}"
@@ -60,6 +65,7 @@ def _render_toolbar(config: AppConfig, sel_year: int, sel_month: int) -> None:
             st.session_state.roster_df = r_df
             st.session_state.day_config_df = d_df
             st.session_state.roster_version += 1
+            st.session_state.point_adjustments = {}  # Reset adjustments too
             st.rerun()
 
     with col_act2:
@@ -133,6 +139,11 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
     st.subheader("Assignments")
 
     column_config = {}
+
+    # Retrieve team counts from current config
+    num_active = st.session_state.app_config.constraints.num_active_teams
+    num_sb = st.session_state.app_config.constraints.num_standby_teams
+
     for col_name in st.session_state.roster_df.columns:
         day_num = logic.get_day_num(col_name)
         if day_num > 0 and day_num in st.session_state.day_config_df.index:
@@ -156,8 +167,20 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
             if not is_active:
                 label += " 🚫"
 
-            # Options available
-            opts = ["", "X", "24H", "S/B"] if mode == "24H" else ["", "X", "AM", "PM", "S/B"]
+            # Construct Options dynamically
+            opts = ["", "X"]
+
+            # Add Active Teams
+            for t in range(1, num_active + 1):
+                if mode == "24H":
+                    opts.append(get_shift_name("24H", t))
+                else:
+                    opts.append(get_shift_name("AM", t))
+                    opts.append(get_shift_name("PM", t))
+
+            # Add Standby Teams
+            for t in range(1, num_sb + 1):
+                opts.append(get_shift_name("S/B", t))
 
             column_config[col_name] = st.column_config.SelectboxColumn(
                 label=label,
@@ -186,7 +209,11 @@ def _render_statistics(config: AppConfig, sel_year: int, sel_month: int) -> None
     st.subheader("Statistics")
 
     stats_df = logic.calculate_stats(
-        st.session_state.roster_df, st.session_state.day_config_df, config, st.session_state.prev_balance
+        st.session_state.roster_df,
+        st.session_state.day_config_df,
+        config,
+        st.session_state.prev_balance,
+        st.session_state.point_adjustments,  # Pass the adjustments
     )
 
     if stats_df.empty or "Month Pts" not in stats_df.columns:
@@ -212,7 +239,54 @@ def _render_statistics(config: AppConfig, sel_year: int, sel_month: int) -> None
     c2.metric("Avg Pts", f"{avg_month:.2f}")
     c3.metric("Std Dev (Total)", f"{std_total:.2f}", help="Standard Deviation of cumulative Carry Over points.")
 
-    st.dataframe(stats_df, width="stretch", hide_index=True)
+    st.caption(
+        "💡 **Manual Adj**: Add penalty (negative) or bonus (positive) points. "
+        "**Brought Fwd**: Adjust starting balance."
+    )
+
+    edited_stats = st.data_editor(
+        stats_df,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Name": st.column_config.TextColumn("Name", disabled=True),
+            "Brought Fwd": st.column_config.NumberColumn(
+                "Brought Fwd",
+                help="Starting balance for this month.",
+                required=True,
+                disabled=False,
+            ),
+            "Roster Pts": st.column_config.NumberColumn(
+                "Roster Pts",
+                help="Points calculated from roster assignments.",
+                disabled=True,
+            ),
+            "Manual Adj": st.column_config.NumberColumn(
+                "Manual Adj",
+                help="Add/Deduct points manually (e.g. -5 for penalty).",
+                required=True,
+                disabled=False,
+            ),
+            "Month Pts": st.column_config.NumberColumn("Month Pts", help="Roster Pts + Manual Adj", disabled=True),
+            "Raw Total": st.column_config.NumberColumn("Raw Total", disabled=True),
+            "Carry Over": st.column_config.NumberColumn(
+                "Carry Over", help="Brought Fwd + Month Pts - Minimum.", disabled=True
+            ),
+        },
+        key=f"stats_editor_{sel_year}_{sel_month}",
+    )
+
+    # Check for edits
+    if not edited_stats.equals(stats_df):
+        # 1. Update Brought Fwd
+        new_balances = dict(zip(edited_stats["Name"], edited_stats["Brought Fwd"], strict=False))
+        st.session_state.prev_balance.update(new_balances)
+
+        # 2. Update Manual Adjustments
+        new_adjustments = dict(zip(edited_stats["Name"], edited_stats["Manual Adj"], strict=False))
+        st.session_state.point_adjustments.update(new_adjustments)
+
+        st.rerun()
 
     xlsx_data = logic.export_to_excel_bytes(st.session_state.roster_df, stats_df, config)
     st.download_button(
