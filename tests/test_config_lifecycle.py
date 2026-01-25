@@ -118,3 +118,7 @@ def test_upload_merge_logic(server_config_file):
     # Assert Preservation (Data not in upload)
     assert new_config.personnel == ["Alice", "Bob"]
     assert new_config.country_code == "SG"
+
+    # Verify nested constraint fields preserved
+    assert new_config.constraints.max_consecutive_duties == 3
+    assert new_config.constraints.personnel_needed_per_shift == {"AM": 1, "PM": 1, "24H": 1}

@@ -65,7 +65,7 @@ def test_variable_creation_multi_team():
         year=2025,
         month=1,
         fixed_assignments={},
-        day_modes={1: "SHIFT"},
+        day_modes={1: ScheduleMode.SHIFT.value},
         inactive_days=[],
         shift_weights={},
     )
@@ -140,6 +140,10 @@ def test_solver_produces_schedule_with_holiday(basic_engine_setup):
     """
     Tests that the solver can handle a month with holidays (June 2025)
     and produces a schedule.
+
+    This test verifies standard feasibility. Holidays (via the 'holidays' library)
+    affect weights and multipliers in the app logic, but the engine simply
+    sees a request for June. We ensure it solves correctly without crashing.
     """
     cfg, req = basic_engine_setup
     # June 2025 has 30 days
@@ -154,3 +158,30 @@ def test_solver_produces_schedule_with_holiday(basic_engine_setup):
     assert res is not None
     schedule, _ = res
     assert len(schedule) > 0
+
+
+def test_solver_respects_inactive_days(basic_engine_setup):
+    """
+    Tests that the solver strictly obeys 'inactive_days'.
+    No assignments should be made on days listed in req.inactive_days.
+    """
+    cfg, req = basic_engine_setup
+    # Standard month setup
+    req.year = 2025
+    req.month = 6
+    req.day_modes = {d: ScheduleMode.SHIFT.value for d in range(1, 31)}
+
+    # Set Day 15 as strictly inactive (e.g. Office Closed)
+    req.inactive_days = [15]
+
+    engine = DutySchedulerEngine(cfg, {}, req)
+    engine.build_model()
+    res = engine.solve()
+
+    assert res is not None
+    schedule, _ = res
+
+    # Verify no assignments on Day 15
+    # Schedule keys are (person, day)
+    assignments_on_inactive = [d for (p, d) in schedule.keys() if d == 15]
+    assert len(assignments_on_inactive) == 0, "Solver assigned duty on inactive day 15"

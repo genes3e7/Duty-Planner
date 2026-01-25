@@ -40,6 +40,27 @@ def constraint_setup():
     return cfg, req
 
 
+@pytest.fixture
+def catchup_setup():
+    """Setup for catch-up limit testing with multiple staff."""
+    cfg = AppConfig.default()
+    cfg.personnel = ["A", "B", "C"]
+    cfg.constraints.standby_per_day = 0
+    cfg.constraints.personnel_needed_per_shift = {"AM": 1, "PM": 0, "24H": 0}
+    cfg.constraints.max_consecutive_duties = 20  # Relaxed for catch-up tests
+
+    req = SolverRequest(
+        staff_ids=cfg.personnel,  # Already synced
+        year=2025,
+        month=1,
+        fixed_assignments={},
+        day_modes={},
+        inactive_days=[],
+        shift_weights={},
+    )
+    return cfg, req
+
+
 # --- Transition Rule Tests ---
 
 
@@ -171,13 +192,9 @@ def test_multi_team_coverage_independent():
 # --- Catch Up Limit Tests ---
 
 
-def test_catch_up_limit_zero_is_unlimited(constraint_setup):
+def test_catch_up_limit_zero_is_unlimited(catchup_setup):
     """Limit=0 should allow unlimited points."""
-    cfg, req = constraint_setup
-    cfg.personnel = ["A", "B", "C"]
-    req.staff_ids = cfg.personnel  # <--- CRITICAL FIX: Sync req with config
-
-    cfg.constraints.max_consecutive_duties = 20  # Relax for test
+    cfg, req = catchup_setup
     cfg.constraints.catch_up_limit = 0.0  # Unlimited
 
     # Force A to do 8/10 days
@@ -191,14 +208,9 @@ def test_catch_up_limit_zero_is_unlimited(constraint_setup):
     assert engine.solve() is not None
 
 
-def test_catch_up_limit_enforced_success(constraint_setup):
+def test_catch_up_limit_enforced_success(catchup_setup):
     """Valid assignment within limit should succeed."""
-    cfg, req = constraint_setup
-    cfg.personnel = ["A", "B", "C"]
-    req.staff_ids = cfg.personnel  # <--- CRITICAL FIX
-
-    cfg.constraints.max_consecutive_duties = 20
-
+    cfg, req = catchup_setup
     # Avg = 3.3. Limit = 2.0. Max = 5.3.
     cfg.constraints.catch_up_limit = 2.0
 
@@ -214,13 +226,9 @@ def test_catch_up_limit_enforced_success(constraint_setup):
     assert engine.solve() is not None
 
 
-def test_catch_up_limit_impossible_fail(constraint_setup):
+def test_catch_up_limit_impossible_fail(catchup_setup):
     """Assignment exceeding limit should fail."""
-    cfg, req = constraint_setup
-    cfg.personnel = ["A", "B", "C"]
-    req.staff_ids = cfg.personnel  # <--- CRITICAL FIX
-
-    cfg.constraints.max_consecutive_duties = 20
+    cfg, req = catchup_setup
 
     # Avg = 3.3. Limit = 1.0. Max = 4.3.
     cfg.constraints.catch_up_limit = 1.0
@@ -237,11 +245,12 @@ def test_catch_up_limit_impossible_fail(constraint_setup):
     assert engine.solve() is None
 
 
-def test_catch_up_limit_distribution(constraint_setup):
+def test_catch_up_limit_distribution(catchup_setup):
     """Verify limit forces work distribution away from overloaded staff."""
-    cfg, req = constraint_setup
+    cfg, req = catchup_setup
+    # Use 2 staff explicitly for this test logic
     cfg.personnel = ["A", "B"]
-    req.staff_ids = cfg.personnel  # <--- CRITICAL FIX
+    req.staff_ids = cfg.personnel  # Re-sync for this specific test
 
     cfg.constraints.catch_up_limit = 1.0
 
@@ -259,12 +268,9 @@ def test_catch_up_limit_distribution(constraint_setup):
     assert a_count <= 16
 
 
-def test_minimal_roster_nonzero_limit(constraint_setup):
+def test_minimal_roster_nonzero_limit(catchup_setup):
     """Verify minimal roster (1 day) doesn't cause zero-division issues."""
-    cfg, req = constraint_setup
-    cfg.personnel = ["A", "B", "C"]
-    req.staff_ids = cfg.personnel  # <--- CRITICAL FIX
-
+    cfg, req = catchup_setup
     cfg.constraints.catch_up_limit = 0.8
 
     req.day_modes = {1: "SHIFT"}

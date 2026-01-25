@@ -26,11 +26,25 @@ def test_get_shift_name():
     assert helpers.get_shift_name("24H", 10) == "24H_10"
 
 
+def test_get_shift_name_invalid_team_num():
+    """Test that team_num < 1 raises ValueError."""
+    with pytest.raises(ValueError, match="team_num must be >= 1"):
+        helpers.get_shift_name("AM", 0)
+
+
 def test_get_base_shift_type():
     """Test extraction of base type from string."""
     assert helpers.get_base_shift_type("AM") == "AM"
     assert helpers.get_base_shift_type("AM_2") == "AM"
     assert helpers.get_base_shift_type("S/B_2") == "S/B"
+
+
+def test_get_base_shift_type_invalid():
+    """Test extraction fails for empty or malformed strings."""
+    with pytest.raises(ValueError, match="cannot be empty"):
+        helpers.get_base_shift_type("")
+    with pytest.raises(ValueError, match="Invalid shift_name format"):
+        helpers.get_base_shift_type("_2")
 
 
 # --- Data Manager Tests (from test_data.py) ---
