@@ -185,7 +185,10 @@ class PointsConfig(BaseModel):
             return self.SB
 
         logger.error(f"Unknown shift type: {shift_type} (Base: {base})")
-        raise ValueError(f"Unknown shift type: '{shift_type}'. Expected 'AM', 'PM', '24H', or 'S/B'.")
+        raise ValueError(
+            f"Unknown shift type: '{shift_type}' (base: '{base}'). "
+            f"Expected 'AM', 'PM', '24H', or 'S/B' (with optional _N suffix)."
+        )
 
     def calculate_score(
         self,
@@ -208,7 +211,8 @@ class PointsConfig(BaseModel):
         """
         try:
             base_val = self.get_by_type(shift_type)
-        except ValueError:
+        except ValueError as e:
+            logger.warning(f"Invalid shift type in calculate_score: {shift_type}. Error: {e}")
             return 0
 
         # Helper: Need base type for multiplier logic checks

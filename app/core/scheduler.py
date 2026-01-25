@@ -273,7 +273,7 @@ class DutySchedulerEngine:
         """
         person_points = []
         SCALE = C.SCORE_SCALE_FACTOR
-        SOFT_BAN_WEIGHT = 50 * SCALE
+        SOFT_BAN_WEIGHT = C.SOFT_BAN_PENALTY_MULTIPLIER * SCALE
 
         # --- Catch Up Limit Calculation (Relative) ---
         catch_up_limit = self.config.constraints.catch_up_limit
@@ -320,11 +320,9 @@ class DutySchedulerEngine:
 
         # --- End Catch Up Calculation ---
 
-        # Define bounds for points.
-        # FIX: Allow negative values to support negative "Brought Fwd" balances.
-        # If someone has -100 points, their total will be negative until they catch up.
-        MIN_DOMAIN = -10000000
-        MAX_DOMAIN = 10000000
+        # Define bounds for points using constants
+        MIN_DOMAIN = C.SOLVER_MIN_POINTS_DOMAIN
+        MAX_DOMAIN = C.SOLVER_MAX_POINTS_DOMAIN
 
         for person in self.req.staff_ids:
             expr = []
@@ -342,7 +340,7 @@ class DutySchedulerEngine:
             if catch_up_limit > 0 and max_allowed_points > 0:
                 self.model.Add(monthly_total <= max_allowed_points)
 
-            # FIX: Use MIN_DOMAIN to allow negative totals
+            # Use MIN_DOMAIN to allow negative totals
             total_pts = self.model.NewIntVar(MIN_DOMAIN, MAX_DOMAIN, f"total_pts_{person}")
             carry_fwd = int(self.prev_balance.get(person, 0.0) * SCALE)
             self.model.Add(total_pts == carry_fwd + monthly_total)
@@ -352,7 +350,6 @@ class DutySchedulerEngine:
         if not person_points:
             return
 
-        # FIX: Use MIN_DOMAIN for Min/Max bounds too
         min_pts = self.model.NewIntVar(MIN_DOMAIN, MAX_DOMAIN, "min_points")
         max_pts = self.model.NewIntVar(MIN_DOMAIN, MAX_DOMAIN, "max_points")
 
@@ -370,6 +367,16 @@ class DutySchedulerEngine:
         self.model.Minimize((max_pts - min_pts) + total_penalty)
 
     def solve(self) -> Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
+        """
+        Runs the CP-SAT solver on the built model.
+
+        Returns:
+            Optional[Tuple[Dict[Tuple[str, int], str], Any]]:
+                A tuple of (schedule, status) if successful, where:
+                - schedule: Dict mapping (person, day) to shift name
+                - status: Solver status code (OPTIMAL or FEASIBLE)
+                Returns None if solving fails.
+        """
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = self.config.constraints.solver_timeout_seconds
         status = solver.Solve(self.model)

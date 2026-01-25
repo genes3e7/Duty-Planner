@@ -44,6 +44,11 @@ SCORE_SCALE_FACTOR = 100
 # Set of duty strings that are considered "Active" for point calculation
 ACTIVE_DUTIES = frozenset({"AM", "PM", "24H", "S/B"})
 
+# Solver Constraints
+SOFT_BAN_PENALTY_MULTIPLIER = 50
+SOLVER_MIN_POINTS_DOMAIN = -10_000_000
+SOLVER_MAX_POINTS_DOMAIN = 10_000_000
+
 # --- UI Colors (Hex) ---
 COLOR_HEADER_BG = "#E0E0E0"
 COLOR_CONSTRAINT_BG = "#FFCCCC"  # For 'X' assignments
