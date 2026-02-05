@@ -69,7 +69,7 @@ pandas==2.3.3
     #   streamlit
 pillow==12.1.0
     # via streamlit
-protobuf==6.33.4
+protobuf==6.33.5
     # via
     #   ortools
     #   streamlit
