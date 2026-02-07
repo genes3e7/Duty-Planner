@@ -121,7 +121,7 @@ pillow==12.1.0
     #   streamlit
 pluggy==1.6.0
     # via pytest
-protobuf==6.33.4
+protobuf==6.33.5
     # via
     #   -c requirements.txt
     #   ortools
