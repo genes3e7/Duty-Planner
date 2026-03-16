@@ -179,7 +179,7 @@ smmap==5.0.2
     # via
     #   -c requirements.txt
     #   gitdb
-streamlit==1.54.0
+streamlit==1.55.0
     # via
     #   -c requirements.txt
     #   -r requirements.in
