@@ -83,3 +83,61 @@ def test_settings_point_multipliers():
     ph_checkbox.set_value(False).run(timeout=30)
 
     assert at.session_state.app_config.points.ph_is_multiplier is False
+
+
+def test_planner_toggle_wknd_active():
+    """
+    Test that the 'Toggle Wknd Active' button correctly flips the Active
+    status for weekends in the day configuration DataFrame while preserving
+    public holidays.
+    """
+    at = AppTest.from_file("streamlit_app.py").run(timeout=30)
+
+    # Ensure we are on the Planner page (default, but explicit is better)
+    at.sidebar.radio("navigation_radio").set_value("Planner").run(timeout=30)
+
+    # Find the newly added toggle button
+    toggle_btn = None
+    for btn in at.button:
+        if btn.label == "Toggle Wknd Active":
+            toggle_btn = btn
+            break
+
+    assert toggle_btn is not None, "Could not find 'Toggle Wknd Active' button"
+
+    # 1. Verify Initial State (Default is Active = True for all days)
+    initial_df = at.session_state.day_config_df
+    target_mask = initial_df["Is_Weekend"].fillna(False)
+
+    assert target_mask.any(), "Expected at least one weekend in the generated month."
+    assert initial_df.loc[target_mask, "Active"].all(), "Expected targeted days to initially be Active."
+
+    # 2. Click Toggle (Should turn them OFF)
+    toggle_btn.click().run(timeout=30)
+
+    toggled_off_df = at.session_state.day_config_df
+    assert (~toggled_off_df.loc[target_mask, "Active"]).all(), "Expected all targeted days to be toggled inactive."
+
+    # Ensure normal weekdays are NOT affected
+    normal_mask = ~target_mask
+    if normal_mask.any():
+        assert toggled_off_df.loc[normal_mask, "Active"].all(), "Normal weekdays should remain active."
+
+    # Ensure weekday public holidays are not treated as inactive-day toggles
+    ph_weekday_mask = initial_df["Is_PH"].fillna(False) & ~initial_df["Is_Weekend"].fillna(False)
+    if ph_weekday_mask.any():
+        assert toggled_off_df.loc[ph_weekday_mask, "Active"].all(), (
+            "Weekday public holidays should remain active when toggling weekends."
+        )
+
+    # 3. Click Toggle Again (Should turn them back ON)
+    toggle_btn.click().run(timeout=30)
+
+    toggled_on_df = at.session_state.day_config_df
+    assert toggled_on_df.loc[target_mask, "Active"].all(), "Expected targeted days to be toggled back to active."
+
+    # Validate that the PH semantic boundary held during the second toggle
+    if ph_weekday_mask.any():
+        assert toggled_on_df.loc[ph_weekday_mask, "Active"].all(), (
+            "Weekday public holidays should still remain active after second toggle."
+        )

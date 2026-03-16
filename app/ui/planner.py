@@ -104,11 +104,26 @@ def _render_day_config() -> None:
         st.caption("Configure which days are Holidays (24H) or active.")
 
         # Bulk Action Buttons
-        b_col1, b_col2 = st.columns(2)
+        b_col0, b_col1, b_col2 = st.columns(3)
+
+        with b_col0:
+            if st.button("Toggle Wknd Active", use_container_width=True):
+                df = st.session_state.day_config_df
+                # Reads current DataFrame state, targets only weekends to protect PHs
+                mask = df["Is_Weekend"].fillna(False)
+
+                if mask.any():
+                    # Toggle behavior: If ANY are active, turn them off. Else turn them on.
+                    any_active = df.loc[mask, "Active"].any()
+                    df.loc[mask, "Active"] = not any_active
+                    st.session_state.day_config_df = df
+                    st.rerun()
+
         with b_col1:
             if st.button("Set All to Shift (AM/PM)", use_container_width=True):
                 st.session_state.day_config_df["Mode"] = "SHIFT"
                 st.rerun()
+
         with b_col2:
             if st.button("Set All to 24H", use_container_width=True):
                 st.session_state.day_config_df["Mode"] = "24H"

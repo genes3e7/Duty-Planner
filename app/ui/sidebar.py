@@ -7,10 +7,13 @@ Handles the sidebar navigation and configuration inputs.
 import datetime
 import json
 import logging
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from dateutil.relativedelta import relativedelta
 
+from app import constants as C
 from app import logic
 from app.core.data import DataManager
 from app.models.config import AppConfig
@@ -33,7 +36,19 @@ def render_sidebar() -> str:
     st.sidebar.subheader("Configuration")
 
     if "app_config" not in st.session_state:
-        st.session_state.app_config = DataManager.load_config()
+        config_data = DataManager.load_config()
+
+        # --- NEW FEATURE: Auto-initialize to system date + 1 month ---
+        # Only override if the loaded config is a fresh default (no existing config.json)
+        # Resolved to absolute path to ensure robustness across execution directories
+        config_path = Path(C.CONFIG_FILE).resolve()
+        if not config_path.exists():
+            next_month = datetime.date.today() + relativedelta(months=1)
+            config_data.year = next_month.year
+            config_data.month = next_month.month
+        # -------------------------------------------------------------
+
+        st.session_state.app_config = config_data
 
     config: AppConfig = st.session_state.app_config
 
