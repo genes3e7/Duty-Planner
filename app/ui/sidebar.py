@@ -7,7 +7,7 @@ Handles the sidebar navigation and configuration inputs.
 import datetime
 import json
 import logging
-import os
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -40,7 +40,9 @@ def render_sidebar() -> str:
 
         # --- NEW FEATURE: Auto-initialize to system date + 1 month ---
         # Only override if the loaded config is a fresh default (no existing config.json)
-        if not os.path.exists(C.CONFIG_FILE):
+        # Resolved to absolute path to ensure robustness across execution directories
+        config_path = Path(C.CONFIG_FILE).resolve()
+        if not config_path.exists():
             next_month = datetime.date.today() + relativedelta(months=1)
             config_data.year = next_month.year
             config_data.month = next_month.month
