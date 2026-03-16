@@ -84,9 +84,10 @@ def test_settings_point_multipliers():
 
     assert at.session_state.app_config.points.ph_is_multiplier is False
 
+
 def test_planner_toggle_wknd_ph_active():
     """
-    Test that the 'Toggle Wknd/PH Active' button correctly flips the Active 
+    Test that the 'Toggle Wknd/PH Active' button correctly flips the Active
     status for weekends and public holidays in the day configuration DataFrame.
     """
     at = AppTest.from_file("streamlit_app.py").run(timeout=30)
@@ -105,24 +106,24 @@ def test_planner_toggle_wknd_ph_active():
 
     # 1. Verify Initial State (Default is Active = True for all days)
     initial_df = at.session_state.day_config_df
-    target_mask = (initial_df["Is_PH"] == True) | (initial_df["Is_Weekend"] == True)
-    
+    target_mask = initial_df["Is_PH"].fillna(False) | initial_df["Is_Weekend"].fillna(False)
+
     assert target_mask.any(), "Expected at least one weekend or PH in the generated month."
-    assert initial_df.loc[target_mask, "Active"].all() == True, "Expected targeted days to initially be Active."
+    assert initial_df.loc[target_mask, "Active"].all(), "Expected targeted days to initially be Active."
 
     # 2. Click Toggle (Should turn them OFF)
     toggle_btn.click().run(timeout=30)
-    
+
     toggled_off_df = at.session_state.day_config_df
-    assert toggled_off_df.loc[target_mask, "Active"].all() == False, "Expected targeted days to be toggled inactive."
-    
+    assert not toggled_off_df.loc[target_mask, "Active"].all(), "Expected targeted days to be toggled inactive."
+
     # Ensure normal weekdays are NOT affected
     normal_mask = ~target_mask
     if normal_mask.any():
-        assert toggled_off_df.loc[normal_mask, "Active"].all() == True, "Normal weekdays should remain active."
+        assert toggled_off_df.loc[normal_mask, "Active"].all(), "Normal weekdays should remain active."
 
     # 3. Click Toggle Again (Should turn them back ON)
     toggle_btn.click().run(timeout=30)
-    
+
     toggled_on_df = at.session_state.day_config_df
-    assert toggled_on_df.loc[target_mask, "Active"].all() == True, "Expected targeted days to be toggled back to active."
+    assert toggled_on_df.loc[target_mask, "Active"].all(), "Expected targeted days to be toggled back to active."

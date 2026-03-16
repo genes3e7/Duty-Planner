@@ -35,13 +35,13 @@ def render_sidebar() -> str:
 
     if "app_config" not in st.session_state:
         config_data = DataManager.load_config()
-        
+
         # --- NEW FEATURE: Auto-initialize to system date + 1 month ---
         next_month = datetime.date.today() + relativedelta(months=1)
         config_data.year = next_month.year
         config_data.month = next_month.month
         # -------------------------------------------------------------
-        
+
         st.session_state.app_config = config_data
 
     config: AppConfig = st.session_state.app_config
