@@ -107,10 +107,10 @@ def _render_day_config() -> None:
         b_col0, b_col1, b_col2 = st.columns(3)
 
         with b_col0:
-            if st.button("Toggle Wknd/PH Active", use_container_width=True):
+            if st.button("Toggle Wknd Active", use_container_width=True):
                 df = st.session_state.day_config_df
-                # Reads current DataFrame state, which includes user's manual PH edits
-                mask = df["Is_PH"].fillna(False) | df["Is_Weekend"].fillna(False)
+                # Reads current DataFrame state, targets only weekends to protect PHs
+                mask = df["Is_Weekend"].fillna(False)
 
                 if mask.any():
                     # Toggle behavior: If ANY are active, turn them off. Else turn them on.
