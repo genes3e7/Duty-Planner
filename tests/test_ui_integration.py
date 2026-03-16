@@ -83,3 +83,46 @@ def test_settings_point_multipliers():
     ph_checkbox.set_value(False).run(timeout=30)
 
     assert at.session_state.app_config.points.ph_is_multiplier is False
+
+def test_planner_toggle_wknd_ph_active():
+    """
+    Test that the 'Toggle Wknd/PH Active' button correctly flips the Active 
+    status for weekends and public holidays in the day configuration DataFrame.
+    """
+    at = AppTest.from_file("streamlit_app.py").run(timeout=30)
+
+    # Ensure we are on the Planner page (default, but explicit is better)
+    at.sidebar.radio("navigation_radio").set_value("Planner").run(timeout=30)
+
+    # Find the newly added toggle button
+    toggle_btn = None
+    for btn in at.button:
+        if btn.label == "Toggle Wknd/PH Active":
+            toggle_btn = btn
+            break
+
+    assert toggle_btn is not None, "Could not find 'Toggle Wknd/PH Active' button"
+
+    # 1. Verify Initial State (Default is Active = True for all days)
+    initial_df = at.session_state.day_config_df
+    target_mask = (initial_df["Is_PH"] == True) | (initial_df["Is_Weekend"] == True)
+    
+    assert target_mask.any(), "Expected at least one weekend or PH in the generated month."
+    assert initial_df.loc[target_mask, "Active"].all() == True, "Expected targeted days to initially be Active."
+
+    # 2. Click Toggle (Should turn them OFF)
+    toggle_btn.click().run(timeout=30)
+    
+    toggled_off_df = at.session_state.day_config_df
+    assert toggled_off_df.loc[target_mask, "Active"].all() == False, "Expected targeted days to be toggled inactive."
+    
+    # Ensure normal weekdays are NOT affected
+    normal_mask = ~target_mask
+    if normal_mask.any():
+        assert toggled_off_df.loc[normal_mask, "Active"].all() == True, "Normal weekdays should remain active."
+
+    # 3. Click Toggle Again (Should turn them back ON)
+    toggle_btn.click().run(timeout=30)
+    
+    toggled_on_df = at.session_state.day_config_df
+    assert toggled_on_df.loc[target_mask, "Active"].all() == True, "Expected targeted days to be toggled back to active."
