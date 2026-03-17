@@ -107,10 +107,10 @@ def _render_day_config() -> None:
         b_col0, b_col1, b_col2 = st.columns(3)
 
         with b_col0:
-            if st.button("Toggle Wknd Active", use_container_width=True):
+            if st.button("Toggle Wknd/PH Active", use_container_width=True):
                 df = st.session_state.day_config_df
-                # Reads current DataFrame state, targets only weekends to protect PHs
-                mask = df["Is_Weekend"].fillna(False)
+                # Reads current DataFrame state, targets both weekends and PHs
+                mask = df["Is_Weekend"].fillna(False) | df["Is_PH"].fillna(False)
 
                 if mask.any():
                     # Toggle behavior: If ANY are active, turn them off. Else turn them on.
@@ -166,6 +166,7 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
             mode = row_config["Mode"]
             is_active = row_config["Active"]
             is_ph = row_config["Is_PH"]
+            is_weekend = row_config["Is_Weekend"]  # Extract weekend flag
 
             # Construct Header Label: e.g. "1 Mon" or "1 Mon 🏖️"
             try:
@@ -178,6 +179,8 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
             # Visual Indicators in Header
             if is_ph:
                 label += " 🏖️"
+            elif is_weekend:
+                label += " 🌴"  # NEW: Weekend emoji
 
             if not is_active:
                 label += " 🚫"
