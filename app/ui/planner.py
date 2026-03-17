@@ -166,7 +166,7 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
             mode = row_config["Mode"]
             is_active = row_config["Active"]
             is_ph = row_config["Is_PH"]
-            is_weekend = row_config.get("Is_Weekend", False)  # Extract weekend flag
+            is_weekend = row_config["Is_Weekend"]  # Extract weekend flag
 
             # Construct Header Label: e.g. "1 Mon" or "1 Mon 🏖️"
             try:
@@ -180,7 +180,7 @@ def _render_roster_grid(sel_year: int, sel_month: int) -> None:
             if is_ph:
                 label += " 🏖️"
             elif is_weekend:
-                label += " 🌴"  # NEW: Weekend emoji (you can change this to 🛋️ or something else if preferred)
+                label += " 🌴"  # NEW: Weekend emoji
 
             if not is_active:
                 label += " 🚫"
