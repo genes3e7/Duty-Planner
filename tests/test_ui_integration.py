@@ -41,7 +41,7 @@ def test_rules_shift_constraints_logic():
     """
     at = AppTest.from_file("streamlit_app.py").run(timeout=30)
 
-    # FIX: Navigate to "Rules" instead of "Settings"
+    # Navigate to "Rules" instead of "Settings"
     at.sidebar.radio("navigation_radio").set_value("Rules").run(timeout=30)
 
     # The rules page has tabs. Constraints are in the first tab ("Configuration").
@@ -104,8 +104,16 @@ def test_planner_toggle_wknd_ph_active():
 
     assert toggle_btn is not None, "Could not find 'Toggle Wknd/PH Active' button"
 
-    # 1. Verify Initial State
+    # Explicitly mutate the DataFrame to guarantee at least one Public Holiday exists.
+    # This ensures the Is_PH logic branch is thoroughly tested even in months with no default PHs.
     initial_df = at.session_state.day_config_df
+    weekdays = initial_df[~initial_df["Is_Weekend"].fillna(False)]
+    if not weekdays.empty:
+        first_weekday_idx = weekdays.index[0]
+        initial_df.loc[first_weekday_idx, "Is_PH"] = True
+        at.session_state.day_config_df = initial_df
+
+    # 1. Verify Initial State
     target_mask = initial_df["Is_Weekend"].fillna(False) | initial_df["Is_PH"].fillna(False)
 
     # Handle the edge case where a generated month has no weekends or PHs
