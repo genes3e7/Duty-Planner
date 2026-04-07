@@ -5,6 +5,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      dependencies:
+        patterns:
+          - "*"
     # Optional: Increase open pull request limit (default is 5)
     open-pull-requests-limit: 10
     commit-message:
