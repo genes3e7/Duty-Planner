@@ -62,7 +62,7 @@ packaging==25.0
     # via
     #   altair
     #   streamlit
-pandas==2.3.3
+pandas==3.0.2
     # via
     #   -r requirements.in
     #   ortools
@@ -85,8 +85,6 @@ python-dateutil==2.9.0.post0
     # via
     #   holidays
     #   pandas
-pytz==2025.2
-    # via pandas
 referencing==0.37.0
     # via
     #   jsonschema
@@ -119,8 +117,6 @@ typing-extensions==4.15.0
     #   typing-inspection
 typing-inspection==0.4.2
     # via pydantic
-tzdata==2025.3
-    # via pandas
 urllib3==2.6.3
     # via requests
 watchdog==6.0.0

@@ -109,7 +109,7 @@ packaging==25.0
     #   altair
     #   pytest
     #   streamlit
-pandas==2.3.3
+pandas==3.0.2
     # via
     #   -c requirements.txt
     #   -r requirements.in
@@ -150,10 +150,6 @@ python-dateutil==2.9.0.post0
     # via
     #   -c requirements.txt
     #   holidays
-    #   pandas
-pytz==2025.2
-    # via
-    #   -c requirements.txt
     #   pandas
 referencing==0.37.0
     # via
@@ -208,10 +204,6 @@ typing-inspection==0.4.2
     # via
     #   -c requirements.txt
     #   pydantic
-tzdata==2025.3
-    # via
-    #   -c requirements.txt
-    #   pandas
 urllib3==2.6.3
     # via
     #   -c requirements.txt
