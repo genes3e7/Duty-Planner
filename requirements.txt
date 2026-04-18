@@ -75,9 +75,9 @@ protobuf==6.33.5
     #   streamlit
 pyarrow==22.0.0
     # via streamlit
-pydantic==2.12.5
+pydantic==2.13.1
     # via -r requirements.in
-pydantic-core==2.41.5
+pydantic-core==2.46.1
     # via pydantic
 pydeck==0.9.1
     # via streamlit
