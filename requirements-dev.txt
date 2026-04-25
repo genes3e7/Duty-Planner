@@ -53,7 +53,7 @@ gitpython==3.1.46
     # via
     #   -c requirements.txt
     #   streamlit
-holidays==0.94
+holidays==0.95
     # via
     #   -c requirements.txt
     #   -r requirements.in
@@ -130,11 +130,11 @@ pyarrow==22.0.0
     # via
     #   -c requirements.txt
     #   streamlit
-pydantic==2.13.1
+pydantic==2.13.3
     # via
     #   -c requirements.txt
     #   -r requirements.in
-pydantic-core==2.46.1
+pydantic-core==2.46.3
     # via
     #   -c requirements.txt
     #   pydantic

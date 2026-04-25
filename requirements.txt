@@ -30,7 +30,7 @@ gitdb==4.0.12
     # via gitpython
 gitpython==3.1.46
     # via streamlit
-holidays==0.94
+holidays==0.95
     # via -r requirements.in
 idna==3.11
     # via requests
@@ -75,9 +75,9 @@ protobuf==6.33.5
     #   streamlit
 pyarrow==22.0.0
     # via streamlit
-pydantic==2.13.1
+pydantic==2.13.3
     # via -r requirements.in
-pydantic-core==2.46.1
+pydantic-core==2.46.3
     # via pydantic
 pydeck==0.9.1
     # via streamlit
