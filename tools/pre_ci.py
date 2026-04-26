@@ -135,6 +135,18 @@ class PreCIPipeline:
         except OSError as e: print(f"⚠️ Warning: Could not remove {path}: {e}", flush=True)
 
     def execute(self) -> None:
+        """Runs the full Pre-CI gate sequence and exits non-zero on failure.
+
+        Execution order: environment sync → README update → parallel tasks
+        (Vulture + Interrogate) → Pytest (runs sequentially only when not in CI) →
+        Ruff lint/format → optional build verification → cleanup → final summary.
+
+        Args:
+            None
+
+        Returns:
+            None
+        """
         print("\n" + "=" * 60, flush=True)
         mode = "CI PIPELINE" if self.is_ci else "LOCAL PRE-CI"
         print(f"🚀 DUTY PLANNER {mode} GATE", flush=True)
