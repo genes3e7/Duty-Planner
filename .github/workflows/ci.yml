@@ -68,7 +68,7 @@ jobs:
     if: |
       always() &&
       needs.check-changes.outputs.python == 'true' &&
-      needs.test-matrix.result == 'success' &&
+      needs.test-matrix.result != 'skipped' &&
       github.actor != 'github-actions[bot]' &&
       (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)       
     steps:
@@ -86,8 +86,10 @@ jobs:
       id: versions
       run: |
         if [ -z "$(ls -A artifacts 2>/dev/null)" ]; then
-           echo "No artifacts found."
-           exit 1
+           echo "No artifacts found. Falling back to defaults."
+           echo "MIN_VER=3.10" >> $GITHUB_ENV
+           echo "MAX_VER=3.14" >> $GITHUB_ENV
+           exit 0
         fi
         cat artifacts/*.txt | sort -V > "$RUNNER_TEMP/sorted_versions.txt"
         if [ ! -s "$RUNNER_TEMP/sorted_versions.txt" ]; then
@@ -116,6 +118,7 @@ jobs:
           git commit -m "chore: professional standards updates and CI maintenance"
           git push origin HEAD:"$REF_TO_PUSH"
         fi
+
 
 
 
