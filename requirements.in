@@ -1,7 +1,0 @@
-# Core Dependencies
-holidays
-openpyxl
-ortools
-pandas
-pydantic
-streamlit

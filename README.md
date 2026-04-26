@@ -95,20 +95,14 @@ sequenceDiagram
     cd duty-planner
     ```
 
-2.  **Create a virtual environment (Recommended):**
+1.  **Install dependencies:**
     ```bash
-    python -m venv .venv
-    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+    uv sync
     ```
 
-3.  **Install dependencies:**
+2.  **Run the application:**
     ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Run the application:**
-    ```bash
-    streamlit run streamlit_app.py
+    uv run streamlit run streamlit_app.py
     ```
 
 ## Testing Methodology
