@@ -83,6 +83,14 @@ class PreCIPipeline:
                         self.record_result(desc, False)
                         success_overall = False
                 except (subprocess.SubprocessError, OSError) as exc:
+                    stdout = getattr(exc, "stdout", None)
+                    stderr = getattr(exc, "stderr", None)
+                    if stdout:
+                        out_str = stdout.decode("utf-8", errors="replace") if isinstance(stdout, bytes) else str(stdout)
+                        print(f"\n--- Partial stdout from {desc} ---\n{out_str.strip()}", flush=True)
+                    if stderr:
+                        err_str = stderr.decode("utf-8", errors="replace") if isinstance(stderr, bytes) else str(stderr)
+                        print(f"\n--- Partial stderr from {desc} ---\n{err_str.strip()}", flush=True)
                     print(f"\n❌ FATAL: '{desc}' generated an exception: {exc}", flush=True)
                     self.record_result(desc, False)
                     success_overall = False
