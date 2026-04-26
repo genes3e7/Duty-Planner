@@ -1,16 +1,41 @@
-[tool.pytest.ini_options]
-minversion = "6.0"
-addopts = "-ra -q"
-testpaths = [
-    "tests",
+[project]
+name = "duty-planner"
+version = "0.1.0"
+description = "A Streamlit-based application for scheduling staff duties."
+authors = [{ name = "Duty Planner Contributors" }]
+requires-python = ">=3.12"
+dependencies = [
+    "holidays",
+    "openpyxl",
+    "ortools",
+    "pandas",
+    "pydantic",
+    "streamlit",
 ]
-python_files = "test_*.py"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "vulture>=2.10",
+    "interrogate>=1.5.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [tool.ruff]
-# Update target to match project requirement
-target-version = "py312"
 line-length = 120
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "I"]
 ignore = []
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+python_files = "test_*.py"
