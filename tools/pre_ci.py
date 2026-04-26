@@ -34,7 +34,7 @@ class PreCIPipeline:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         try:
-            subprocess.run(command, check=True, encoding="utf-8", env=env)
+            subprocess.run(command, check=True, env=env)
             print(f"✅ {description} completed successfully.", flush=True)
             self.record_result(description, True)
             return True
@@ -164,3 +164,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     pipeline = PreCIPipeline(args.min_ver, args.max_ver)
     pipeline.execute()
+
