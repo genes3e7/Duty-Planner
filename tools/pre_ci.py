@@ -1,0 +1,166 @@
+"""Duty Planner: Local Pre-CI Script."""
+
+import argparse
+import concurrent.futures
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+from typing import ClassVar
+
+
+class PreCIPipeline:
+    """Orchestrates the local and CI validation checks for the project."""
+
+    STATUS_MAP: ClassVar[dict[bool | str, str]] = {
+        True: "✅ PASS",
+        False: "❌ FAIL",
+        "SKIPPED": "⏭️  SKIP",
+    }
+
+    def __init__(self, min_ver: str = "3.12", max_ver: str = "3.15") -> None:
+        self._results: list[tuple[str, bool | str]] = []
+        self.is_ci = os.environ.get("CI", "").lower() in ("true", "1", "yes")
+        self.min_ver = min_ver
+        self.max_ver = max_ver
+
+    def record_result(self, description: str, passed: bool | str) -> None:
+        self._results.append((description, passed))
+
+    def run_command(self, command: list[str], description: str, fail_fast: bool = False) -> bool:
+        print(f"\n>>> [Step: {description}]", flush=True)
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        try:
+            subprocess.run(command, check=True, encoding="utf-8", env=env)
+            print(f"✅ {description} completed successfully.", flush=True)
+            self.record_result(description, True)
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"\n❌ FATAL: '{description}' failed with exit code {e.returncode}", flush=True)
+            self.record_result(description, False)
+            if fail_fast:
+                sys.exit(e.returncode)
+            return False
+        except (subprocess.SubprocessError, OSError) as e:
+            print(f"\n❌ FATAL: '{description}' error: {e}", flush=True)
+            self.record_result(description, False)
+            if fail_fast:
+                sys.exit(1)
+            return False
+
+    def run_commands_parallel(self, tasks: list[tuple[list[str], str]]) -> bool:
+        print("\n>>> [Parallel Execution] Starting concurrent checks...", flush=True)
+        success_overall = True
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_desc = {
+                executor.submit(
+                    subprocess.run, cmd, capture_output=True, text=True, encoding="utf-8", env=env, timeout=300
+                ): desc for cmd, desc in tasks
+            }
+
+            for future in concurrent.futures.as_completed(future_to_desc):
+                desc = future_to_desc[future]
+                try:
+                    result = future.result()
+                    print(f"\n--- Output from {desc} ---", flush=True)
+                    if result.stdout: print(result.stdout.strip(), flush=True)
+                    if result.stderr: print(result.stderr.strip(), flush=True)
+
+                    if result.returncode == 0:
+                        print(f"✅ {desc} completed successfully.", flush=True)
+                        self.record_result(desc, True)
+                    else:
+                        print(f"❌ FATAL: '{desc}' failed with exit code {result.returncode}", flush=True)
+                        self.record_result(desc, False)
+                        success_overall = False
+                except (subprocess.SubprocessError, OSError) as exc:
+                    print(f"\n❌ FATAL: '{desc}' generated an exception: {exc}", flush=True)
+                    self.record_result(desc, False)
+                    success_overall = False
+        return success_overall
+
+    def all_passed(self) -> bool:
+        return all(passed is True for _, passed in self._results)
+
+    def print_summary(self, title: str = "📋 PRE-CI SUMMARY") -> bool:
+        print("\n" + "=" * 60, flush=True)
+        print(title, flush=True)
+        print("=" * 60, flush=True)
+        no_failures = True
+        for description, passed in self._results:
+            status_label = self.STATUS_MAP.get(passed, "❓ UNKNOWN")
+            print(f"{status_label.ljust(10)} | {description}", flush=True)
+            if passed is False: no_failures = False
+        print("=" * 60, flush=True)
+        return no_failures
+
+    def cleanup(self) -> None:
+        print("\n>>> [Cleanup] Purging caches and build artifacts...", flush=True)
+        root = pathlib.Path(".")
+        base_targets = ["build", "dist", ".ruff_cache", ".pytest_cache", ".coverage", "python_version_*.txt", "artifacts"]
+        venv_names = {"venv", ".venv", "env"}
+        if os.environ.get("VIRTUAL_ENV"): venv_names.add(pathlib.Path(os.environ["VIRTUAL_ENV"]).name)
+        folders = []
+        for base in base_targets: folders.extend(root.glob(base))
+        for dirpath, dirnames, _filenames in os.walk(root):
+            path = pathlib.Path(dirpath)
+            dirnames[:] = [d for d in dirnames if d not in venv_names and not d.startswith(".")]
+            for d in list(dirnames):
+                if d == "__pycache__" or d.endswith(".egg-info"):
+                    folders.append(path / d)
+                    dirnames.remove(d)
+        for target in sorted(set(folders)): self._remove_path(target)
+
+    def _remove_path(self, path: pathlib.Path) -> None:
+        try:
+            if path.is_dir(): shutil.rmtree(path)
+            else: path.unlink(missing_ok=True)
+        except OSError as e: print(f"⚠️ Warning: Could not remove {path}: {e}", flush=True)
+
+    def execute(self) -> None:
+        print("\n" + "=" * 60, flush=True)
+        mode = "CI PIPELINE" if self.is_ci else "LOCAL PRE-CI"
+        print(f"🚀 DUTY PLANNER {mode} GATE", flush=True)
+        print("=" * 60, flush=True)
+
+        self.run_command(["uv", "sync", "--all-extras", "--frozen"], "Syncing Project Environment", fail_fast=True)
+        self.run_command(["uv", "run", "--no-sync", "python", "tools/update_readme.py", self.min_ver, self.max_ver], "Updating README structure")
+
+        parallel_tasks = [
+            (["uv", "run", "--no-sync", "vulture", "app/", "--min-confidence", "80"], "Dead Code Analysis (Vulture)"),
+            (["uv", "run", "--no-sync", "interrogate", "."], "Docstring Coverage Enforcement"),
+        ]
+        self.run_commands_parallel(parallel_tasks)
+
+        if not self.is_ci:
+            self.run_command(["uv", "run", "--no-sync", "pytest", "-v"], "Unit Tests & Coverage Enforcement")
+
+        if self.is_ci:
+            self.run_command(["uv", "run", "--no-sync", "ruff", "check", "."], "Ruff Linting")
+            self.run_command(["uv", "run", "--no-sync", "ruff", "format", "--check", "."], "Ruff Formatting")
+        elif self.all_passed():
+            self.run_command(["uv", "run", "--no-sync", "ruff", "check", ".", "--fix"], "Ruff Linting")
+            self.run_command(["uv", "run", "--no-sync", "ruff", "format", "."], "Ruff Formatting")
+        else:
+            self.record_result("Ruff Linting", "SKIPPED")
+            self.record_result("Ruff Formatting", "SKIPPED")
+
+        self.cleanup()
+        if self.print_summary(title="📋 FINAL PRE-CI SUMMARY"): print("\n✨ ALL CHECKS PASSED.\n", flush=True)
+        else:
+            print("\n❌ Pipeline failed. See logs above.\n", flush=True)
+            sys.exit(1)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Duty Planner Pre-CI Gate")
+    parser.add_argument("min_ver", nargs="?", default="3.12", help="Minimum supported Python version")
+    parser.add_argument("max_ver", nargs="?", default="3.15", help="Maximum supported Python version")
+    args = parser.parse_args()
+    pipeline = PreCIPipeline(args.min_ver, args.max_ver)
+    pipeline.execute()
