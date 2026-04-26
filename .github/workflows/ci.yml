@@ -7,30 +7,10 @@ on:
     branches: [ "main" ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  compile-deps:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"  # Changed from 3.13
-      - name: Install pip-tools
-        run: pip install pip-tools
-      - name: Compile requirements
-        run: pip-compile requirements.in --output-file requirements.txt
-      - name: Upload Lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: lockfiles
-          path: requirements.txt
-          if-no-files-found: error
-
   test-matrix:
-    needs: compile-deps
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -39,35 +19,25 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-        allow-prereleases: true
-        
-    - name: Download Lockfiles
-      uses: actions/download-artifact@v4
-      with:
-        name: lockfiles
-        path: .
 
-    - name: Install Dependencies
-      run: |
-        if [ -f requirements.txt ]; then
-          pip install -r requirements.txt
-        else
-          pip install -r requirements.in
-        fi
-        pip install pytest pytest-cov ruff
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: uv sync --all-extras
 
     - name: Lint and Format (Check Only)
       run: |
-        ruff check .  # Removed --fix
-        ruff format --check .
+        uv run ruff check .
+        uv run ruff format --check .
 
     - name: Run Tests
-      run: pytest --cov=app tests/
+      run: uv run pytest --cov=app tests/
 
     - name: Create Success Marker
       run: touch python_version_${{ matrix.python-version }}.txt
