@@ -16,7 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",`n    "pytest-xdist>=3.5.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.5.0",
     "ruff>=0.1.0",
     "vulture>=2.10",
     "interrogate>=1.5.0",
@@ -39,4 +40,5 @@ minversion = "6.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
 python_files = "test_*.py"
+
 
