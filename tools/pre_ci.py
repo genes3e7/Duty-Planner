@@ -116,12 +116,19 @@ class PreCIPipeline:
         root = pathlib.Path(".")
         base_targets = ["build", "dist", ".ruff_cache", ".pytest_cache", ".coverage", "python_version_*.txt", "artifacts"]
         venv_names = {"venv", ".venv", "env"}
+        base_target_names = {"build", "dist", ".ruff_cache", ".pytest_cache", "artifacts"}
         if os.environ.get("VIRTUAL_ENV"): venv_names.add(pathlib.Path(os.environ["VIRTUAL_ENV"]).name)
         folders = []
         for base in base_targets: folders.extend(root.glob(base))
         for dirpath, dirnames, _filenames in os.walk(root):
             path = pathlib.Path(dirpath)
-            dirnames[:] = [d for d in dirnames if d not in venv_names and not d.startswith(".")]
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if d not in venv_names
+                and d not in base_target_names
+                and not d.startswith(".")
+            ]
             for d in list(dirnames):
                 if d == "__pycache__" or d.endswith(".egg-info"):
                     folders.append(path / d)
