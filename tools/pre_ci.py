@@ -63,7 +63,7 @@ class PreCIPipeline:
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_to_desc = {
                 executor.submit(
-                    subprocess.run, cmd, capture_output=True, text=True, encoding="utf-8", env=env, timeout=300
+                    subprocess.run, cmd, capture_output=True, text=True, encoding="utf-8", env=env
                 ): desc for cmd, desc in tasks
             }
 
