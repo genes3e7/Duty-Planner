@@ -373,7 +373,7 @@ class PreCIPipeline:
         if not self.is_ci:
             parallel_tasks.append(
                 (
-                    ["uv", "run", "--no-sync", "pytest"],
+                    ["uv", "run", "--no-sync", "pytest", "-n", "auto", "-v"],
                     "Unit Tests & Coverage Enforcement",
                 )
             )

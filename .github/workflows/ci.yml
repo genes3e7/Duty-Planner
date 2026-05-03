@@ -49,7 +49,7 @@ jobs:
     - name: Install dependencies
       run: uv sync --all-extras --frozen
     - name: Test with Pytest
-      run: uv run --no-sync pytest --cov=app tests/
+      run: uv run --no-sync pytest -n auto --cov=app tests/
     - name: Record Success
       if: success()
       run: echo "${{ matrix.python-version }}" > python_version_${{ matrix.python-version }}.txt
@@ -116,6 +116,9 @@ jobs:
           git commit -m "chore: professional standards updates and CI maintenance"
           git push origin HEAD:"$REF_TO_PUSH"
         fi
+
+
+
 
 
 
