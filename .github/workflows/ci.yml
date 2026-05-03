@@ -73,6 +73,7 @@ jobs:
       with:
         fetch-depth: 0
         ref: ${{ github.head_ref || github.ref_name }}
+        persist-credentials: false
     - name: Download all artifacts
       uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.8
       with:
@@ -108,11 +109,12 @@ jobs:
       if: env.MIN_VER != ''
       env:
         REF_TO_PUSH: ${{ github.head_ref || github.ref_name }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add -u
         if ! git diff --staged --quiet; then
           git commit -m "chore: professional standards updates and CI maintenance"
-          git push origin HEAD:"$REF_TO_PUSH"
+          git push https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git HEAD:"$REF_TO_PUSH"
         fi
