@@ -41,5 +41,23 @@ addopts = "-ra -q --cov-fail-under=95"
 testpaths = ["tests"]
 python_files = "test_*.py"
 
+[tool.interrogate]
+ignore-init-module = true
+ignore-init-method = true
+ignore-private = true
+ignore-semiprivate = false
+ignore-magic = true
+ignore-module = false
+ignore-nested-functions = false
+ignore-nested-classes = false
+ignore-setters = false
+fail-under = 100
+exclude = ["setup.py", "tests", "build", "tools", "dist", ".venv"]
+ignore-regex = ["^get$", "^mock_.*", ".*Base$"]
+verbose = 0
+quiet = false
+whitelist-regex = []
+color = true
+
 
 
