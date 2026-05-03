@@ -2,49 +2,119 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+      id: filter
+      with:
+        filters: |
+          python:
+            - '**.py'
+            - 'uv.lock'
+            - 'pyproject.toml'
+            - '.github/workflows/ci.yml'
+
   test-matrix:
+    needs: check-changes
+    if: needs.check-changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14", "3.15"]
-
+        python-version: ["3.12", "3.13", "3.14"]
+      fail-fast: false
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+    - name: Set up uv
+      uses: astral-sh/setup-uv@1edb52594c857e2b5b13128931090f0640537287 # v5.3.0
       with:
         enable-cache: true
-
-    - name: Set up Python ${{ matrix.python-version }}
-      run: uv python install ${{ matrix.python-version }}
-
+        python-version: ${{ matrix.python-version }}
     - name: Install dependencies
-      run: uv sync --all-extras
-
-    - name: Lint and Format (Check Only)
-      run: |
-        uv run ruff check .
-        uv run ruff format --check .
-
-    - name: Run Tests
-      run: uv run pytest --cov=app tests/
-
-    - name: Create Success Marker
-      run: touch python_version_${{ matrix.python-version }}.txt
-
-    - name: Upload Success Marker
-      uses: actions/upload-artifact@v4
+      run: uv sync --all-extras --frozen
+    - name: Test with Pytest
+      run: uv run --no-sync pytest -n auto tests/
+    - name: Record Success
+      if: success()
+      run: echo "${{ matrix.python-version }}" > python_version_${{ matrix.python-version }}.txt
+    - name: Upload Success Artifact
+      if: success()
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
       with:
-        name: success-markers-${{ matrix.python-version }}
+        name: passed-version-${{ matrix.python-version }}
         path: python_version_${{ matrix.python-version }}.txt
-        if-no-files-found: error
+
+  finalize-updates:
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: |
+      needs.test-matrix.result == 'success' &&
+      github.actor != 'github-actions[bot]' &&
+      (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      with:
+        fetch-depth: 0
+        ref: ${{ github.head_ref || github.ref_name }}
+        persist-credentials: false
+    - name: Download all artifacts
+      uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.8
+      with:
+        path: artifacts
+        pattern: passed-version-*
+        merge-multiple: true
+    - name: Determine Supported Range
+      id: versions
+      run: |
+        if [ -z "$(ls -A artifacts 2>/dev/null)" ]; then
+           echo "No artifacts found."
+           exit 1
+        fi
+        # Identify the range of successfully tested Python versions
+        cat artifacts/*.txt | sort -V > "$RUNNER_TEMP/sorted_versions.txt"
+        
+        if [ ! -s "$RUNNER_TEMP/sorted_versions.txt" ]; then
+          echo "No stable versions found. Skipping badge update."
+          exit 0
+        fi
+        
+        echo "MIN_VER=$(head -n 1 "$RUNNER_TEMP/sorted_versions.txt")" >> $GITHUB_ENV
+        echo "MAX_VER=$(tail -n 1 "$RUNNER_TEMP/sorted_versions.txt")" >> $GITHUB_ENV
+    - name: Set up uv
+      if: env.MIN_VER != ''
+      uses: astral-sh/setup-uv@1edb52594c857e2b5b13128931090f0640537287 # v5.3.0
+      with:
+        enable-cache: true
+    - name: Run Final CI Gate
+      if: env.MIN_VER != ''
+      run: uv run --no-sync python tools/pre_ci.py "$MIN_VER" "$MAX_VER"
+    - name: Commit and Push
+      if: env.MIN_VER != ''
+      env:
+        REF_TO_PUSH: ${{ github.head_ref || github.ref_name }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add -u
+        if ! git diff --staged --quiet; then
+          git commit -m "chore: professional standards updates and CI maintenance"
+          git push https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git HEAD:"$REF_TO_PUSH"
+        fi

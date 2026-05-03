@@ -17,9 +17,11 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.5.0",
     "ruff>=0.1.0",
     "vulture>=2.10",
     "interrogate>=1.5.0",
+    "pathspec>=0.12.1",
 ]
 
 [build-system]
@@ -36,6 +38,27 @@ ignore = []
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q"
+addopts = "-ra --cov-fail-under=95"
 testpaths = ["tests"]
 python_files = "test_*.py"
+
+[tool.interrogate]
+ignore-init-module = true
+ignore-init-method = true
+ignore-private = true
+ignore-semiprivate = false
+ignore-magic = true
+ignore-module = false
+ignore-nested-functions = false
+ignore-nested-classes = false
+ignore-setters = false
+fail-under = 100
+exclude = ["setup.py", "tests", "build", "tools", "dist", ".venv"]
+ignore-regex = ["^get$", "^mock_.*", ".*Base$"]
+verbose = 0
+quiet = false
+whitelist-regex = []
+color = true
+
+
+
