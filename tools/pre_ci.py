@@ -394,7 +394,7 @@ class PreCIPipeline:
                 pass
             elif self.all_passed():
                 self.run_command(
-                    ["uv", "run", "--no-sync", "pytest", "-n", "auto", "-v"],
+                    ["uv", "run", "--no-sync", "pytest", "-v"],
                     "Unit Tests & Coverage Enforcement",
                 )
             else:

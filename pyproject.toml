@@ -38,7 +38,7 @@ ignore = []
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --cov-fail-under=95"
+addopts = "-ra --cov-fail-under=95"
 testpaths = ["tests"]
 python_files = "test_*.py"
 
