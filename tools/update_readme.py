@@ -166,6 +166,6 @@ def update_readme(min_ver: str | None = None, max_ver: str | None = None) -> Non
 
 
 if __name__ == "__main__":
-    m_ver = sys.argv[1] if len(sys.argv) > 1 else None
-    x_ver = sys.argv[2] if len(sys.argv) > 2 else None
-    update_readme(m_ver, x_ver)
+    min_ver = sys.argv[1] if len(sys.argv) > 1 else None
+    max_ver = sys.argv[2] if len(sys.argv) > 2 else None
+    update_readme(min_ver, max_ver)
