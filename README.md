@@ -2,7 +2,7 @@
 
 A Streamlit-based application for scheduling staff duties. This tool provides an interactive interface to plan rosters, configure constraints, and optimize schedules using Google's OR-Tools.
 
-[Python 3.10 through 3.14]![Supported Python](https://img.shields.io/badge/python-3.10%20-%203.14-blue)
+![Python 3.10 through 3.14](https://img.shields.io/badge/python-3.10%20--%203.14-blue)
 
 ## Features
 
