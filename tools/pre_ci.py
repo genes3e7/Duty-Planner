@@ -192,7 +192,6 @@ class PreCIPipeline:
         return all(passed is True for _, passed in self._results)
 
     def print_summary(self, title: str = "📋 PRE-CI SUMMARY") -> bool:
-
         """Prints a formatted table of all recorded step results.
 
         Args:
@@ -357,9 +356,7 @@ class PreCIPipeline:
                 print(res.stderr.strip(), flush=True)
 
             # Fail fast if script failed or output contains anchored ERROR/CRITICAL
-            if res.returncode != 0 or re.search(
-                r"^ERROR:|^CRITICAL:", res.stdout + res.stderr, re.MULTILINE
-            ):
+            if res.returncode != 0 or re.search(r"^ERROR:|^CRITICAL:", res.stdout + res.stderr, re.MULTILINE):
                 print(
                     "\n❌ FATAL: 'Updating README structure' failed or contains errors.",
                     flush=True,

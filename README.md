@@ -134,8 +134,7 @@ Try out the live demo at:
 ├── .github/
 │   ├── dependabot.yml
 │   └── workflows/
-│       ├── ci.yml
-│       └── update-badges.yml
+│       └── ci.yml
 ├── .gitignore
 ├── .streamlit/
 │   └── config.toml

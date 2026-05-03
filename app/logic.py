@@ -9,7 +9,7 @@ It handles data transformation, safe parsing, and orchestrating the solving proc
 import io
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import holidays
 import pandas as pd
@@ -122,7 +122,15 @@ def clear_schedule(df_roster: Optional[pd.DataFrame], clear_constraints: bool = 
         df[:] = ""
     else:
 
-        def keep_x(val):
+        def keep_x(val: Any) -> str:
+            """Preserves 'X' markers in the roster while clearing other values.
+
+            Args:
+                val: The cell value to process.
+
+            Returns:
+                "X" if the input is an "X" marker, otherwise an empty string.
+            """
             if isinstance(val, str) and val.strip().upper() == "X":
                 return "X"
             return ""

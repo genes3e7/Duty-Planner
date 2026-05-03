@@ -24,6 +24,13 @@ def _ensure_pending_state() -> None:
 
 
 def _update_number_field(field_name: str, label: str, current_value: float) -> None:
+    """Updates a numeric configuration field in the session state.
+
+    Args:
+        field_name: The internal name of the point setting.
+        label: The display label for the input field.
+        current_value: The current value of the field.
+    """
     _ensure_pending_state()
     new_val = st.number_input(label, value=current_value, key=f"pt_{field_name}")
     if new_val != current_value:
@@ -31,6 +38,13 @@ def _update_number_field(field_name: str, label: str, current_value: float) -> N
 
 
 def _update_checkbox_field(field_name: str, label: str, current_value: bool) -> None:
+    """Updates a boolean configuration field in the session state.
+
+    Args:
+        field_name: The internal name of the toggle setting.
+        label: The display label for the checkbox.
+        current_value: The current value of the field.
+    """
     _ensure_pending_state()
     new_val = st.checkbox(label, value=current_value, key=f"pt_bool_{field_name}")
     if new_val != current_value:
