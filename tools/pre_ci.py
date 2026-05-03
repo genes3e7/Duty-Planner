@@ -74,15 +74,13 @@ class PreCIPipeline:
             ``True`` if the command exits with code 0, ``False`` otherwise.
         """
         print(f"\n>>> [Step: {description}]", flush=True)
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
         try:
             # capture_output=False (default) streams directly to our stdout/stderr
             # preventing pipe deadlocks for large output volumes (like Pytest).
-            subprocess.run(  # noqa: S603
+            subprocess.run(  # noqa: S603, S607
                 command,
                 check=True,
-                env=env,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             )
 
             print(f"✅ {description} completed successfully.", flush=True)
@@ -123,13 +121,12 @@ class PreCIPipeline:
         """
         print("\n>>> [Parallel Execution] Starting concurrent checks...", flush=True)
         success_overall = True
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_to_desc = {
                 executor.submit(
-                    subprocess.run,  # noqa: S603
+                    subprocess.run,  # noqa: S603, S607
                     cmd,
                     capture_output=True,
                     text=True,
@@ -352,8 +349,8 @@ class PreCIPipeline:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                env=os.environ.copy(),
-            )  # noqa: S603
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )  # noqa: S603,S607
             if res.stdout:
                 print(res.stdout.strip(), flush=True)
             if res.stderr:
