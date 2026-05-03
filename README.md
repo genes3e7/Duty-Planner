@@ -2,7 +2,7 @@
 
 A Streamlit-based application for scheduling staff duties. This tool provides an interactive interface to plan rosters, configure constraints, and optimize schedules using Google's OR-Tools.
 
-[![Supported Python](https://img.shields.io/badge/python-3.12_to_3.14-blue)](https://www.python.org/downloads/)
+[Python 3.10 through 3.14]![Supported Python](https://img.shields.io/badge/python-3.10%20-%203.14-blue)
 
 ## Features
 
@@ -122,3 +122,63 @@ The project employs a comprehensive testing strategy:
 
 Try out the live demo at:
 [**smart-duty-scheduler.streamlit.app**](https://smart-duty-scheduler.streamlit.app/)
+
+## Project Structure
+
+<!-- PROJECT_TREE_START -->
+```text
+.
+├── .devcontainer/
+│   └── devcontainer.json
+├── .gitattributes
+├── .github/
+│   ├── dependabot.yml
+│   └── workflows/
+│       ├── ci.yml
+│       └── update-badges.yml
+├── .gitignore
+├── .streamlit/
+│   └── config.toml
+├── LICENSE
+├── README.md
+├── app/
+│   ├── __init__.py
+│   ├── constants.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── data.py
+│   │   └── scheduler.py
+│   ├── logic.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── config.py
+│   ├── ui/
+│   │   ├── __init__.py
+│   │   ├── planner.py
+│   │   ├── rules.py
+│   │   ├── settings.py
+│   │   └── sidebar.py
+│   └── utils/
+│       ├── __init__.py
+│       ├── helpers.py
+│       └── logger.py
+├── config.json
+├── pyproject.toml
+├── streamlit_app.py
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py
+│   ├── test_config_lifecycle.py
+│   ├── test_scheduler_constraints.py
+│   ├── test_scheduler_engine.py
+│   ├── test_ui_integration.py
+│   ├── test_unit_logic.py
+│   ├── test_unit_models.py
+│   └── test_unit_utils.py
+├── tools/
+│   ├── __init__.py
+│   ├── pre_ci.py
+│   └── update_readme.py
+└── uv.lock
+```
+<!-- PROJECT_TREE_END -->

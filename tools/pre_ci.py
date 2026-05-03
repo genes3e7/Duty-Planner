@@ -4,6 +4,7 @@ import argparse
 import concurrent.futures
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ class PreCIPipeline:
 
     Attributes:
         STATUS_MAP (dict): Maps boolean or string outcomes to visual status labels.
-        _results (list): Internal log of (description, status, outputs) tuples.
+        _results (list): Internal log of (description, passed) tuples.
         is_ci (bool): True if executing within a remote CI environment.
         min_ver (str): Minimum supported Python version for README updates.
         max_ver (str): Maximum supported Python version for README updates.
@@ -37,7 +38,7 @@ class PreCIPipeline:
             min_ver: The minimum supported Python version string (e.g. "3.10").
             max_ver: The maximum supported Python version string (e.g. "3.14").
         """
-        self._results: list[tuple[str, bool | str, dict[str, str] | None]] = []
+        self._results: list[tuple[str, bool | str]] = []
         self.is_ci = os.environ.get("CI", "").lower() in ("true", "1", "yes")
         self.min_ver = min_ver
         self.max_ver = max_ver
@@ -46,7 +47,6 @@ class PreCIPipeline:
         self,
         description: str,
         passed: bool | str,
-        outputs: dict[str, str] | None = None,
     ) -> None:
         """Records the outcome of a specific pipeline step.
 
@@ -54,16 +54,13 @@ class PreCIPipeline:
             description: Human-readable label for the step being recorded.
             passed: ``True`` on success, ``False`` on failure, or ``"SKIPPED"``
                 when a step is intentionally bypassed.
-            outputs: Optional dict with 'stdout' and 'stderr' captured content.
 
         Returns:
             None
         """
-        self._results.append((description, passed, outputs))
+        self._results.append((description, passed))
 
-    def run_command(
-        self, command: list[str], description: str, fail_fast: bool = False
-    ) -> bool:
+    def run_command(self, command: list[str], description: str, fail_fast: bool = False) -> bool:
         """Executes a single shell command and records its pass/fail status.
 
         Args:
@@ -80,25 +77,16 @@ class PreCIPipeline:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         try:
-            result = subprocess.run(  # noqa: S603
+            # capture_output=False (default) streams directly to our stdout/stderr
+            # preventing pipe deadlocks for large output volumes (like Pytest).
+            subprocess.run(  # noqa: S603
                 command,
-                capture_output=True,
-                text=True,
                 check=True,
-                encoding="utf-8",
                 env=env,
             )
 
-            # Stream stdout/stderr back since we captured it successfully
-            if result.stdout:
-                print(result.stdout, end="", file=sys.stdout, flush=True)
-            if result.stderr:
-                print(result.stderr, end="", file=sys.stderr, flush=True)
-
             print(f"✅ {description} completed successfully.", flush=True)
-            self.record_result(
-                description, True, {"stdout": result.stdout, "stderr": result.stderr}
-            )
+            self.record_result(description, True)
             return True
 
         except subprocess.CalledProcessError as e:
@@ -106,23 +94,13 @@ class PreCIPipeline:
                 f"\n❌ FATAL: '{description}' failed with exit code {e.returncode}",
                 flush=True,
             )
-            if e.stdout:
-                print("--- STDOUT ---", flush=True)
-                print(e.stdout, end="", file=sys.stdout, flush=True)
-            if e.stderr:
-                print("--- STDERR ---", flush=True)
-                print(e.stderr, end="", file=sys.stderr, flush=True)
-
-            # Attach captured outputs to the failure record
-            self.record_result(
-                description, False, {"stdout": e.stdout, "stderr": e.stderr}
-            )
+            self.record_result(description, False)
             if fail_fast:
                 sys.exit(e.returncode)
             return False
         except (subprocess.SubprocessError, OSError) as e:
             print(f"\n❌ FATAL: '{description}' error: {e}", flush=True)
-            self.record_result(description, False, {"stdout": "", "stderr": str(e)})
+            self.record_result(description, False)
 
             if fail_fast:
                 sys.exit(1)
@@ -173,29 +151,37 @@ class PreCIPipeline:
 
                     if result.returncode == 0:
                         print(f"✅ {desc} completed successfully.", flush=True)
-                        self.record_result(
-                            desc,
-                            True,
-                            {"stdout": result.stdout, "stderr": result.stderr},
-                        )
+                        self.record_result(desc, True)
                     else:
                         print(
-                            f"❌ FATAL: '{desc}' failed with exit code "
-                            f"{result.returncode}",
+                            f"❌ FATAL: '{desc}' failed with exit code {result.returncode}",
                             flush=True,
                         )
-                        self.record_result(
-                            desc,
-                            False,
-                            {"stdout": result.stdout, "stderr": result.stderr},
-                        )
+                        self.record_result(desc, False)
                         success_overall = False
                 except (subprocess.SubprocessError, OSError) as exc:
                     print(
                         f"\n❌ FATAL: '{desc}' generated an exception: {exc}",
                         flush=True,
                     )
-                    self.record_result(desc, False, {"stdout": "", "stderr": str(exc)})
+                    # Surface any partial output captured on the failing process.
+                    partial_stdout = getattr(exc, "stdout", None)
+                    partial_stderr = getattr(exc, "stderr", None)
+                    if partial_stdout:
+                        print(
+                            partial_stdout
+                            if isinstance(partial_stdout, str)
+                            else partial_stdout.decode(errors="replace"),
+                            flush=True,
+                        )
+                    if partial_stderr:
+                        print(
+                            partial_stderr
+                            if isinstance(partial_stderr, str)
+                            else partial_stderr.decode(errors="replace"),
+                            flush=True,
+                        )
+                    self.record_result(desc, False)
                     success_overall = False
 
         return success_overall
@@ -206,9 +192,10 @@ class PreCIPipeline:
         Returns:
             bool: True iff every result is exactly True.
         """
-        return all(passed is True for _, passed, _ in self._results)
+        return all(passed is True for _, passed in self._results)
 
     def print_summary(self, title: str = "📋 PRE-CI SUMMARY") -> bool:
+
         """Prints a formatted table of all recorded step results.
 
         Args:
@@ -223,15 +210,15 @@ class PreCIPipeline:
         print(title, flush=True)
         print("=" * 60, flush=True)
 
-        all_passed = True
-        for description, passed, _ in self._results:
+        no_failures = True
+        for description, passed in self._results:
             status_label = self.STATUS_MAP.get(passed, "❓ UNKNOWN")
             print(f"{status_label.ljust(10)} | {description}", flush=True)
             if passed is False:
-                all_passed = False
+                no_failures = False
 
         print("=" * 60, flush=True)
-        return all_passed
+        return no_failures
 
     def cleanup(self) -> None:
         """Removes build artifacts and caches from the local workspace.
@@ -256,19 +243,16 @@ class PreCIPipeline:
             "artifacts",
         ]
 
-        # Dynamically find nested artifacts, explicitly skipping venvs and hidden dirs
-        venv_names = {"venv", ".venv", "env"}
-        
+        # Dynamically find nested artifacts, explicitly skipping venvs, hidden dirs,
+        # and the top-level base_targets we will rmtree wholesale.
+        venv_names = {"venv", ".venv"}
         # Pruneable directory names = literal (non-glob) entries from base_targets,
         # excluding hidden ones (already filtered via startswith(".")) and files.
         base_target_names = {
             t
             for t in base_targets
-            if not any(c in t for c in "*?[")
-            and not t.startswith(".")
-            and not pathlib.Path(t).suffix
+            if not any(c in t for c in "*?[") and not t.startswith(".") and not pathlib.Path(t).suffix
         }
-        
         if os.environ.get("VIRTUAL_ENV"):
             venv_names.add(pathlib.Path(os.environ["VIRTUAL_ENV"]).name)
 
@@ -279,10 +263,27 @@ class PreCIPipeline:
         for dirpath, dirnames, _filenames in os.walk(root):
             path = pathlib.Path(dirpath)
 
-            # Skip common environment and hidden directories, and wholesale targets
-            if path.name in venv_names or path.name in base_target_names or path.name.startswith("."):
-                dirnames[:] = []  # Don't recurse into these
-                continue
+            # Prune common environment, hidden, and base target directories
+            # before descending.
+            # Only prune a directory matching venv_names if it contains venv markers.
+            pruned_dirnames = []
+            for d in dirnames:
+                if d in base_target_names or d.startswith("."):
+                    continue
+
+                if d in venv_names:
+                    d_path = path / d
+                    is_venv = (
+                        (d_path / "pyvenv.cfg").exists()
+                        or (d_path / "bin" / "activate").exists()
+                        or (d_path / "Scripts" / "activate").exists()
+                    )
+                    if is_venv:
+                        continue
+
+                pruned_dirnames.append(d)
+
+            dirnames[:] = pruned_dirnames
 
             # Identify and prune artifacts in the current (non-skipped) directory
             for d in list(dirnames):
@@ -313,8 +314,9 @@ class PreCIPipeline:
     def execute(self) -> None:
         """Runs the full Pre-CI gate sequence and exits non-zero on failure.
 
-        Execution order: environment sync → README update → Ruff lint/format →
-        parallel (Vulture + Interrogate [+ Pytest if not CI]) → cleanup → final summary.
+        Execution order: environment sync → README update → parallel checks
+        (Vulture + Interrogate) → sequential Pytest (local only) →
+        Ruff lint/format → optional build verification → cleanup → final report.
 
         Args:
             None
@@ -335,7 +337,8 @@ class PreCIPipeline:
         )
 
         # 2. Update README
-        self.run_command(
+        print("\n>>> [Step: Updating README structure]", flush=True)
+        res = subprocess.run(
             [
                 "uv",
                 "run",
@@ -345,19 +348,33 @@ class PreCIPipeline:
                 self.min_ver,
                 self.max_ver,
             ],
-            "Updating README structure",
-        )
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=os.environ.copy(),
+        )  # noqa: S603
+        if res.stdout:
+            print(res.stdout.strip(), flush=True)
+        if res.stderr:
+            print(res.stderr.strip(), flush=True)
 
-        # 3. Formatting and Linting (Run unconditionally so CI can push diffs)
-        self.run_command(
-            ["uv", "run", "--no-sync", "ruff", "check", ".", "--fix"], "Ruff Linting"
-        )
-        self.run_command(
-            ["uv", "run", "--no-sync", "ruff", "format", "."], "Ruff Formatting"
-        )
+        # Fail fast if script failed or output contains anchored ERROR/CRITICAL
+        if res.returncode != 0 or re.search(
+            r"^ERROR:|^CRITICAL:", res.stdout + res.stderr, re.MULTILINE
+        ):
+            print(
+                "\n❌ FATAL: 'Updating README structure' failed or contains errors.",
+                flush=True,
+            )
+            self.record_result("Updating README structure", False)
+            sys.exit(1)
 
-        # 4. Parallel Checks (Vulture, Interrogate, Pytest)
-        # Use --no-sync to avoid lock contention during parallel uv run calls
+        print("✅ Updating README structure completed successfully.", flush=True)
+        self.record_result("Updating README structure", True)
+
+
+        # 3. Parallel Checks (Vulture, Interrogate)
+        # These are lightweight enough to run concurrently.
         parallel_tasks = [
             (
                 ["uv", "run", "--no-sync", "vulture", "app/", "--min-confidence", "80"],
@@ -369,20 +386,47 @@ class PreCIPipeline:
             ),
         ]
 
-        # Pytest executes in the remote test-matrix job. Prevent redundancy in CI.
-        if not self.is_ci:
-            parallel_tasks.append(
-                (
-                    ["uv", "run", "--no-sync", "pytest", "-n", "auto", "-v"],
-                    "Unit Tests & Coverage Enforcement",
-                )
-            )
-
         self.run_commands_parallel(parallel_tasks)
 
+        # 4. Unit Tests (Run sequentially to avoid xdist hangs and see clear progress)
+        # Pytest executes in the remote test-matrix job. Prevent redundancy in CI.
+        if self.is_ci:
+            pass
+        elif self.all_passed():
+            self.run_command(
+                ["uv", "run", "--no-sync", "pytest", "-n", "auto", "-v"],
+                "Unit Tests & Coverage Enforcement",
+            )
+        else:
+            self.record_result("Unit Tests & Coverage Enforcement", "SKIPPED")
+
+        # 5. Linting and Formatting (Apply only if checks passed, or if local)
+        if self.is_ci:
+            # In CI, fail-fast on style drift instead of auto-fixing.
+            self.run_command(
+                ["uv", "run", "--no-sync", "ruff", "check", "."],
+                "Ruff Linting",
+            )
+            self.run_command(
+                ["uv", "run", "--no-sync", "ruff", "format", "--check", "."],
+                "Ruff Formatting",
+            )
+        elif self.all_passed():
+            # Locally, allow auto-fixing if logic is sound.
+            self.run_command(
+                ["uv", "run", "--no-sync", "ruff", "check", ".", "--fix"],
+                "Ruff Linting",
+            )
+            self.run_command(["uv", "run", "--no-sync", "ruff", "format", "."], "Ruff Formatting")
+        else:
+            self.record_result("Ruff Linting", "SKIPPED")
+            self.record_result("Ruff Formatting", "SKIPPED")
+
+        # 6. Cleanup
+        # cleanup() intentionally removes build artifacts produced by preceding steps.
         self.cleanup()
 
-        # 5. Final Report
+        # 7. Final Report
         if self.print_summary(title="📋 FINAL PRE-CI SUMMARY"):
             print("\n✨ ALL CHECKS PASSED.\n", flush=True)
         else:
@@ -393,24 +437,31 @@ class PreCIPipeline:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Duty Planner Pre-CI Gate")
     parser.add_argument(
-        "min_ver", nargs="?", default=DEFAULT_MIN_PY, help="Minimum supported Python version"
+        "min_ver",
+        nargs="?",
+        default=None,
+        help="Minimum supported Python version",
     )
     parser.add_argument(
-        "max_ver", nargs="?", default=DEFAULT_MAX_PY, help="Maximum supported Python version"
+        "max_ver",
+        nargs="?",
+        default=None,
+        help="Maximum supported Python version",
     )
     args = parser.parse_args()
 
     # Regex for semantic-ish versions like 3.10 or 3.14-dev
     _ver_re = re.compile(r"^\d+\.\d+(?:-[a-zA-Z0-9]+)?$")
 
-    def _validate(label: str, val: str, fallback: str) -> str:
-        if not val or not _ver_re.match(val):
+    def _validate(label: str, val: str | None, fallback: str) -> str:
+        if val is None:
+            return fallback
+        if not _ver_re.match(val):
             print(
-                f"⚠️ Warning: {label}={val!r} is invalid/empty. "
-                f"Falling back to {fallback}.",
+                f"❌ FATAL: {label}={val!r} is not a valid version (expected e.g. '3.10' or '3.14-dev').",
                 flush=True,
             )
-            return fallback
+            sys.exit(2)
         return val
 
     validated_min = _validate("min_ver", args.min_ver, DEFAULT_MIN_PY)
@@ -424,11 +475,11 @@ if __name__ == "__main__":
 
     if _ver_tuple(validated_min) > _ver_tuple(validated_max):
         print(
-            f"⚠️ Warning: min_ver={validated_min!r} > max_ver={validated_max!r}. "
-            f"Falling back to defaults {DEFAULT_MIN_PY}/{DEFAULT_MAX_PY}.",
+            f"❌ FATAL: min_ver={validated_min!r} > max_ver={validated_max!r} is an invalid range.",
+            file=sys.stderr,
             flush=True,
         )
-        validated_min, validated_max = DEFAULT_MIN_PY, DEFAULT_MAX_PY
+        sys.exit(1)
 
     pipeline = PreCIPipeline(validated_min, validated_max)
     pipeline.execute()
